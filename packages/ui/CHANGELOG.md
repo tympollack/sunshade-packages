@@ -1,6 +1,6 @@
-# @sunshade/ui
+# @digitalcanopy/ui
 
-## 0.2.0
+## 0.1.0
 
 ### Minor Changes
 
@@ -9,4 +9,4 @@
 ### Patch Changes
 
 - Updated dependencies [f7109a0]
-  - @sunshade/supabase@0.1.0
+  - @digitalcanopy/supabase@0.1.0

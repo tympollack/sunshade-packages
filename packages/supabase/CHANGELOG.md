@@ -1,4 +1,4 @@
-# @sunshade/supabase
+# @digitalcanopy/supabase
 
 ## 0.1.0
 
