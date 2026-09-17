@@ -1,6 +1,6 @@
 {
   "name": "@sunshade/supabase",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "main": "./src/client.ts",
   "types": "./src/client.ts",
   "scripts": {
