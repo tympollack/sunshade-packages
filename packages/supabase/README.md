@@ -1,11 +1,11 @@
-# @sunshade/supabase
+# @digitalcanopy/supabase
 
-Cross-domain authentication and Supabase client helpers for the SunShade ecosystem.
+Cross-domain authentication and Supabase client helpers for the SunShade & Digital Canopy ecosystem.
 
 ## Installation
 
 ```bash
-npm install @sunshade/supabase
+npm install @digitalcanopy/supabase
 ```
 
 ## Features

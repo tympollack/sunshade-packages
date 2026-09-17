@@ -1,8 +1,11 @@
 {
-  "name": "@sunshade/supabase",
+  "name": "@digitalcanopy/supabase",
   "version": "0.1.0",
   "main": "./src/client.ts",
   "types": "./src/client.ts",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit"
   },

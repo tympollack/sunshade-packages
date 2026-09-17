@@ -6,8 +6,8 @@
 
 | Package | Version | Description |
 |---|---|---|
-| [`@sunshade/ui`](./packages/ui) | `0.1.0` | Shared design tokens, glassmorphism presets, and cross-platform UI primitives (Next.js, Expo, React Native Web). |
-| [`@sunshade/supabase`](./packages/supabase) | `0.0.0` | Shared cross-domain Supabase authentication and client helpers. |
+| [`@digitalcanopy/ui`](./packages/ui) | `0.1.0` | Shared design tokens, glassmorphism presets, and cross-platform UI primitives (Next.js, Expo, React Native Web). |
+| [`@digitalcanopy/supabase`](./packages/supabase) | `0.1.0` | Shared cross-domain Supabase authentication and client helpers. |
 
 ## Monorepo Architecture
 
@@ -18,8 +18,8 @@ sunshade-packages/
 ├── .changeset/           Automated semantic versioning and release management
 ├── .github/workflows/    CI build/test and release workflows
 ├── packages/
-│   ├── ui/               @sunshade/ui design system & primitives
-│   └── supabase/         @sunshade/supabase client & auth
+│   ├── ui/               @digitalcanopy/ui design system & primitives
+│   └── supabase/         @digitalcanopy/supabase client & auth
 ├── package.json          Root workspaces and tooling
 └── turbo.json            Turborepo task pipeline
 ```

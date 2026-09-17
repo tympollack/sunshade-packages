@@ -1,5 +1,5 @@
 {
-  "name": "@sunshade/packages",
+  "name": "@digitalcanopy/packages",
   "private": true,
   "workspaces": [
     "packages/*"

@@ -1,13 +1,13 @@
-# @sunshade/ui
+# @digitalcanopy/ui
 
-Universal design tokens, glassmorphism presets, and cross-platform UI primitives for the SunShade ecosystem.
+Cross-platform design tokens, glassmorphism presets, and UI primitives for the SunShade & Digital Canopy ecosystem (Next.js, Expo, React Native Web).
 
 ## Installation
 
 ```bash
-npm install @sunshade/ui
+npm install @digitalcanopy/ui
 # or
-yarn add @sunshade/ui
+yarn add @digitalcanopy/ui
 ```
 
 ## Features
@@ -24,7 +24,7 @@ yarn add @sunshade/ui
 ## Usage
 
 ```tsx
-import { GlassCard, PrimaryButton, AtmosphericBadge, TokenBalanceBadge } from '@sunshade/ui';
+import { GlassCard, PrimaryButton, AtmosphericBadge, TokenBalanceBadge } from '@digitalcanopy/ui';
 
 export function Header() {
   return (
