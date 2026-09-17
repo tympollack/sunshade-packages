@@ -31,5 +31,11 @@
     "typescript": "^5.7.3",
     "vitest": "^3.0.5"
   },
+  "overrides": {
+    "react-native-web": {
+      "react": "$react",
+      "react-dom": "$react-dom"
+    }
+  },
   "packageManager": "npm@10.8.2"
 }
