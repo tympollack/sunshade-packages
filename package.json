@@ -9,7 +9,7 @@
     "test": "turbo run test",
     "test:boundaries": "turbo run test:boundaries",
     "typecheck": "turbo run typecheck",
-    "lint": "turbo run lint",
+    "lint": "turbo run lint && node scripts/lint-filesize.mjs",
     "lint:filesize": "node scripts/lint-filesize.mjs",
     "changeset": "changeset",
     "version-packages": "changeset version",

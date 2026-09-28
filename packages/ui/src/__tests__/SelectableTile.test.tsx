@@ -49,6 +49,39 @@ describe('SelectableTile WCAG AA Contrast Ratios (All 6 Variants)', () => {
     expect(titleRatio).toBeGreaterThan(14.0);
     expect(descRatio).toBeGreaterThan(5.5);
   });
+
+  it('guarantees opaque dark base (#1A1A1A) so text contrast is preserved even when mounted on a white surface', () => {
+    for (const variant of variants) {
+      const { unmount } = render(
+        <div style={{ backgroundColor: '#FFFFFF' }}>
+          <SelectableTile
+            selected={false}
+            variant={variant}
+            icon={<span>⭐</span>}
+            title={`${variant} tile`}
+            description="Testing contrast on white parent"
+            testID={`tile-${variant}`}
+          />
+        </div>
+      );
+
+      const tile = screen.getByTestId(`tile-${variant}`);
+      expect(tile.className).toContain('bg-[#1A1A1A]');
+
+      const token = VARIANT_CONTRAST_TOKENS[variant];
+      expect(tile.style.backgroundColor).toBe(`rgb(${token.effectiveSurfaceRgb.join(', ')})`);
+
+      const titleRgb = parseHexToRgb(CONTRAST_TYPOGRAPHY.title.color);
+      const descRgb = parseHexToRgb(CONTRAST_TYPOGRAPHY.description.color);
+      const titleRatio = calculateContrastRatio(titleRgb, token.effectiveSurfaceRgb);
+      const descRatio = calculateContrastRatio(descRgb, token.effectiveSurfaceRgb);
+
+      expect(titleRatio).toBeGreaterThanOrEqual(7.0);
+      expect(descRatio).toBeGreaterThanOrEqual(4.5);
+
+      unmount();
+    }
+  });
 });
 
 describe('SelectableTile Component Behavior & Accessibility', () => {

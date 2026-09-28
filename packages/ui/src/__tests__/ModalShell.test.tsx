@@ -76,17 +76,146 @@ describe('ModalShell Layout & Containment Primitive', () => {
     expect(screen.getByTestId('submit-btn')).toBeTruthy();
   });
 
-  it('locks body scrolling while open and restores on unmount or close', () => {
-    const { unmount } = render(
-      <ModalShell isOpen={true} onClose={vi.fn()} title="Scroll Lock Test">
-        <p>Body</p>
+  it('renders accessible high-contrast text on the fixed dark frame without light-theme drift', () => {
+    render(
+      <ModalShell
+        isOpen={true}
+        onClose={vi.fn()}
+        title="High Contrast Header"
+        subtitle="Accessible subtitle text"
+      >
+        <p>Body copy</p>
       </ModalShell>
+    );
+
+    const subtitleEl = screen.getByText('Accessible subtitle text');
+    expect(subtitleEl.className).toContain('text-stone-400');
+    expect(subtitleEl.className).not.toContain('text-stone-600');
+
+    const closeBtn = screen.getByRole('button', { name: /Close dialog/i });
+    expect(closeBtn.className).toContain('text-stone-400');
+    expect(closeBtn.className).not.toContain('text-stone-700');
+  });
+
+  it('manages body scroll locking with reference counting across multiple overlapping modals', () => {
+    const handleCloseA = vi.fn();
+    const handleCloseB = vi.fn();
+
+    const { rerender } = render(
+      <>
+        <ModalShell isOpen={true} onClose={handleCloseA} title="Modal A" testID="modal-a">
+          <p>Modal A</p>
+        </ModalShell>
+        <ModalShell isOpen={true} onClose={handleCloseB} title="Modal B" testID="modal-b">
+          <p>Modal B</p>
+        </ModalShell>
+      </>
     );
 
     expect(document.body.style.overflow).toBe('hidden');
 
-    unmount();
+    // Close Modal A first; Modal B remains open
+    rerender(
+      <>
+        <ModalShell isOpen={false} onClose={handleCloseA} title="Modal A" testID="modal-a">
+          <p>Modal A</p>
+        </ModalShell>
+        <ModalShell isOpen={true} onClose={handleCloseB} title="Modal B" testID="modal-b">
+          <p>Modal B</p>
+        </ModalShell>
+      </>
+    );
+
+    // Body scroll must STILL be locked because Modal B is still open
+    expect(document.body.style.overflow).toBe('hidden');
+
+    // Close Modal B; now all modals are closed
+    rerender(
+      <>
+        <ModalShell isOpen={false} onClose={handleCloseA} title="Modal A" testID="modal-a">
+          <p>Modal A</p>
+        </ModalShell>
+        <ModalShell isOpen={false} onClose={handleCloseB} title="Modal B" testID="modal-b">
+          <p>Modal B</p>
+        </ModalShell>
+      </>
+    );
+
+    // Body scroll lock is restored once all modals are closed
     expect(document.body.style.overflow).toBe('');
+  });
+
+  it('dismisses only the topmost modal when Escape is pressed on stacked dialogs', () => {
+    const handleCloseA = vi.fn();
+    const handleCloseB = vi.fn();
+
+    render(
+      <>
+        <ModalShell isOpen={true} onClose={handleCloseA} title="Modal A" testID="modal-a">
+          <p>Modal A</p>
+        </ModalShell>
+        <ModalShell isOpen={true} onClose={handleCloseB} title="Modal B" testID="modal-b">
+          <p>Modal B</p>
+        </ModalShell>
+      </>
+    );
+
+    // Press Escape
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    // ONLY Modal B (top of stack) receives the dismiss event; Modal A remains open
+    expect(handleCloseB).toHaveBeenCalledTimes(1);
+    expect(handleCloseA).not.toHaveBeenCalled();
+  });
+
+  it('traps Tab focus inside the active modal container', () => {
+    render(
+      <ModalShell isOpen={true} onClose={vi.fn()} title="Focus Trap" testID="trap-modal">
+        <button data-testid="btn-first">First Action</button>
+        <button data-testid="btn-second">Second Action</button>
+      </ModalShell>
+    );
+
+    const closeBtn = screen.getByRole('button', { name: /Close dialog/i });
+    const firstBtn = screen.getByTestId('btn-first');
+    const secondBtn = screen.getByTestId('btn-second');
+
+    // Focus last element and press Tab
+    secondBtn.focus();
+    expect(document.activeElement).toBe(secondBtn);
+
+    fireEvent.keyDown(window, { key: 'Tab', shiftKey: false });
+    // Focus wraps to the first focusable element (closeBtn)
+    expect(document.activeElement).toBe(closeBtn);
+
+    // Shift + Tab on the first element wraps to the last element
+    fireEvent.keyDown(window, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(secondBtn);
+  });
+
+  it('behaviorally isolates scroll wheel events to prevent outer page scroll bleed', () => {
+    render(
+      <ModalShell isOpen={true} onClose={vi.fn()} title="Scroll Isolation">
+        <div style={{ height: 1000 }}>Long content</div>
+      </ModalShell>
+    );
+
+    const body = screen.getByTestId('modal-body');
+    Object.defineProperty(body, 'scrollTop', { value: 0, writable: true });
+    Object.defineProperty(body, 'scrollHeight', { value: 1000, writable: true });
+    Object.defineProperty(body, 'clientHeight', { value: 300, writable: true });
+
+    // Wheel up at top of container (deltaY < 0) should be prevented to stop page bleed
+    const wheelUpEvent = new WheelEvent('wheel', { deltaY: -50, bubbles: true, cancelable: true });
+    body.dispatchEvent(wheelUpEvent);
+    expect(wheelUpEvent.defaultPrevented).toBe(true);
+
+    // Set scroll position to bottom
+    body.scrollTop = 700;
+    // Wheel down at bottom of container (deltaY > 0) should be prevented
+    const wheelDownEvent = new WheelEvent('wheel', { deltaY: 50, bubbles: true, cancelable: true });
+    body.dispatchEvent(wheelDownEvent);
+    expect(wheelDownEvent.defaultPrevented).toBe(true);
   });
 
   it('triggers onClose when backdrop is clicked, but prevents close when clicking inside frame', () => {
@@ -104,22 +233,6 @@ describe('ModalShell Layout & Containment Primitive', () => {
     const backdrop = screen.getByTestId('click-modal-backdrop');
     fireEvent.click(backdrop);
     expect(handleClose).toHaveBeenCalledTimes(1);
-  });
-
-  it('triggers onClose when dismiss close button or Escape key is pressed', () => {
-    const handleClose = vi.fn();
-    render(
-      <ModalShell isOpen={true} onClose={handleClose} title="Escape Test">
-        <p>Inside content</p>
-      </ModalShell>
-    );
-
-    const closeBtn = screen.getByRole('button', { name: /Close modal/i });
-    fireEvent.click(closeBtn);
-    expect(handleClose).toHaveBeenCalledTimes(1);
-
-    fireEvent.keyDown(window, { key: 'Escape' });
-    expect(handleClose).toHaveBeenCalledTimes(2);
   });
 
   it('does not render when isOpen is false', () => {

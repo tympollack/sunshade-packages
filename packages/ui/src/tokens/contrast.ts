@@ -11,6 +11,9 @@ export interface VariantContrastToken {
   accentRgb: [number, number, number];
   surfaceTintClass: string;
   surfaceTintColor: string;
+  /** Opaque precomposited dark surface hex (#1A1A1A + 10% tint) guaranteeing contrast on any parent */
+  effectiveSurfaceHex: string;
+  effectiveSurfaceRgb: [number, number, number];
   borderStrokeClass: string;
   borderStrokeColor: string;
   hoverBorderClass: string;
@@ -44,6 +47,8 @@ export const VARIANT_CONTRAST_TOKENS: Record<SelectableTileVariant, VariantContr
     accentRgb: [245, 158, 11],
     surfaceTintClass: 'bg-amber-500/10',
     surfaceTintColor: 'rgba(245, 158, 11, 0.10)',
+    effectiveSurfaceHex: '#302719',
+    effectiveSurfaceRgb: [48, 39, 25],
     borderStrokeClass: 'border-amber-500/30',
     borderStrokeColor: 'rgba(245, 158, 11, 0.30)',
     hoverBorderClass: 'hover:border-amber-400/60',
@@ -58,6 +63,8 @@ export const VARIANT_CONTRAST_TOKENS: Record<SelectableTileVariant, VariantContr
     accentRgb: [14, 165, 233],
     surfaceTintClass: 'bg-sky-500/10',
     surfaceTintColor: 'rgba(14, 165, 233, 0.10)',
+    effectiveSurfaceHex: '#19282F',
+    effectiveSurfaceRgb: [25, 40, 47],
     borderStrokeClass: 'border-sky-500/30',
     borderStrokeColor: 'rgba(14, 165, 233, 0.30)',
     hoverBorderClass: 'hover:border-sky-400/60',
@@ -72,6 +79,8 @@ export const VARIANT_CONTRAST_TOKENS: Record<SelectableTileVariant, VariantContr
     accentRgb: [168, 85, 247],
     surfaceTintClass: 'bg-purple-500/10',
     surfaceTintColor: 'rgba(168, 85, 247, 0.10)',
+    effectiveSurfaceHex: '#282030',
+    effectiveSurfaceRgb: [40, 32, 48],
     borderStrokeClass: 'border-purple-500/30',
     borderStrokeColor: 'rgba(168, 85, 247, 0.30)',
     hoverBorderClass: 'hover:border-purple-400/60',
@@ -86,6 +95,8 @@ export const VARIANT_CONTRAST_TOKENS: Record<SelectableTileVariant, VariantContr
     accentRgb: [120, 113, 108],
     surfaceTintClass: 'bg-stone-500/10',
     surfaceTintColor: 'rgba(120, 113, 108, 0.10)',
+    effectiveSurfaceHex: '#232322',
+    effectiveSurfaceRgb: [35, 35, 34],
     borderStrokeClass: 'border-stone-500/30',
     borderStrokeColor: 'rgba(120, 113, 108, 0.30)',
     hoverBorderClass: 'hover:border-stone-400/60',
@@ -100,6 +111,8 @@ export const VARIANT_CONTRAST_TOKENS: Record<SelectableTileVariant, VariantContr
     accentRgb: [100, 116, 139],
     surfaceTintClass: 'bg-slate-500/10',
     surfaceTintColor: 'rgba(100, 116, 139, 0.10)',
+    effectiveSurfaceHex: '#212325',
+    effectiveSurfaceRgb: [33, 35, 37],
     borderStrokeClass: 'border-slate-500/30',
     borderStrokeColor: 'rgba(100, 116, 139, 0.30)',
     hoverBorderClass: 'hover:border-slate-400/60',
@@ -114,6 +127,8 @@ export const VARIANT_CONTRAST_TOKENS: Record<SelectableTileVariant, VariantContr
     accentRgb: [99, 102, 241],
     surfaceTintClass: 'bg-indigo-500/10',
     surfaceTintColor: 'rgba(99, 102, 241, 0.10)',
+    effectiveSurfaceHex: '#212230',
+    effectiveSurfaceRgb: [33, 34, 48],
     borderStrokeClass: 'border-indigo-500/30',
     borderStrokeColor: 'rgba(99, 102, 241, 0.30)',
     hoverBorderClass: 'hover:border-indigo-400/60',
@@ -155,6 +170,13 @@ export function parseHexToRgb(hex: string): [number, number, number] {
   const g = parseInt(cleaned.slice(2, 4), 16);
   const b = parseInt(cleaned.slice(4, 6), 16);
   return [r, g, b];
+}
+
+/**
+ * Converts an [R, G, B] tuple to a hex string (#RRGGBB).
+ */
+export function rgbToHex(rgb: [number, number, number]): string {
+  return '#' + rgb.map((x) => Math.max(0, Math.min(255, Math.round(x))).toString(16).padStart(2, '0')).join('');
 }
 
 /**
