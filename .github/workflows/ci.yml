@@ -30,5 +30,8 @@ jobs:
       - name: Build packages
         run: npm run build
 
+      - name: Lint & File size guard
+        run: npm run lint
+
       - name: Run boundary tests
         run: npm run test:boundaries
