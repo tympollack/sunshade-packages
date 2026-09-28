@@ -1,5 +1,11 @@
 # @digitalcanopy/ui
 
+## 0.1.1
+
+### Patch Changes
+
+- Add SelectableTile and ModalShell primitives with decoupled WCAG AA contrast tokens, viewport containment, and cross-platform native/web support.
+
 ## 0.1.0
 
 ### Minor Changes
