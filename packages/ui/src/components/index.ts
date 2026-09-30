@@ -13,3 +13,4 @@ export * from './Tooltip';
 export * from './Dropdown';
 export * from './ProgressBar';
 export * from './Skeleton';
+export * from './DataTable';
