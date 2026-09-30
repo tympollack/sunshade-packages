@@ -7,4 +7,4 @@ export * from './CommunityPoll';
 export * from './EventsCarousel';
 export * from './SelectableTile';
 export * from './Modal';
-
+export * from './BottomSheet';
