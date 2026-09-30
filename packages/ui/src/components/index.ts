@@ -8,3 +8,6 @@ export * from './EventsCarousel';
 export * from './SelectableTile';
 export * from './Modal';
 export * from './BottomSheet';
+export * from './Popover';
+export * from './Tooltip';
+export * from './Dropdown';
