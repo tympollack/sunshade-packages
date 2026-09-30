@@ -84,7 +84,7 @@ export function Sparkline({
 }: SparklineProps) {
   const gradientId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
-  const [hoveredPoint, setHoveredPoint] = useState<Point | null>(null);
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
   const effectiveFillColor = fillColor || strokeColor;
 
@@ -115,6 +115,13 @@ export function Sparkline({
     });
   }, [data]);
 
+  const effectiveHoveredIndex =
+    hoveredIndex !== null && points.length > 0
+      ? Math.max(0, Math.min(points.length - 1, hoveredIndex))
+      : null;
+
+  const hoveredPoint = effectiveHoveredIndex !== null ? points[effectiveHoveredIndex] : null;
+
   const linePath = useMemo(() => buildCubicBezierPath(points), [points]);
 
   const areaPath = useMemo(() => {
@@ -134,11 +141,11 @@ export function Sparkline({
     const relativeX = Math.max(0, Math.min(1, (clientX - left) / containerW));
     const targetIdx = Math.max(0, Math.min(points.length - 1, Math.round(relativeX * (points.length - 1))));
 
-    setHoveredPoint(points[targetIdx]);
+    setHoveredIndex(targetIdx);
   };
 
   const handlePointerLeave = () => {
-    setHoveredPoint(null);
+    setHoveredIndex(null);
   };
 
   return (

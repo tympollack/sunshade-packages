@@ -49,70 +49,85 @@ export function ProgressBar({
 
   const sum = segments.reduce((acc, s) => acc + Math.max(0, s.value), 0);
   const effectiveTotal = total !== undefined ? total : (sum > 0 ? sum : 100);
+  // Cap/normalize visual total so segments never overflow 100% of track when sum > total
+  const visualTotal = Math.max(effectiveTotal, sum);
 
-  // Calculate percentages
+  // Calculate percentages and visual offsets
+  let cumulativeVisualOffset = 0;
   const computedSegments = segments.map((seg, idx) => {
     const rawVal = Math.max(0, seg.value);
-    const percentage = effectiveTotal > 0 ? (rawVal / effectiveTotal) * 100 : 0;
+    const visualPercentage = visualTotal > 0 ? (rawVal / visualTotal) * 100 : 0;
+    const truthfulPercentage = effectiveTotal > 0 ? (rawVal / effectiveTotal) * 100 : 0;
+    const centerPercentage = cumulativeVisualOffset + visualPercentage / 2;
+    cumulativeVisualOffset += visualPercentage;
     return {
       ...seg,
       index: idx,
-      percentage,
+      visualPercentage,
+      percentage: truthfulPercentage,
+      centerPercentage,
     };
   });
 
+  const hoveredSegment = hoveredIndex !== null ? computedSegments.find((s) => s.index === hoveredIndex) : null;
+
   return (
     <div data-testid={testID} className={cn('w-full flex flex-col gap-2', className)}>
-      {/* Outer Track */}
-      <div
-        className={cn(
-          'relative w-full flex items-stretch overflow-hidden rounded-full',
-          'bg-stone-800/80 border border-stone-800',
-          HEIGHT_CLASSES[size]
+      <div className="relative w-full">
+        {/* Unclipped Tooltip Overlay Layer */}
+        {showTooltips && hoveredSegment && hoveredSegment.visualPercentage > 0 && (
+          <div
+            role="tooltip"
+            data-testid={`${testID}-tooltip-${hoveredSegment.index}`}
+            style={{
+              left: `${Math.min(95, Math.max(5, hoveredSegment.centerPercentage))}%`,
+            }}
+            className={cn(
+              'absolute bottom-full mb-2 -translate-x-1/2 z-20 whitespace-nowrap pointer-events-none',
+              'px-2 py-1 text-[11px] font-medium rounded-md shadow-lg',
+              'bg-stone-900/95 border border-stone-700 text-stone-200 backdrop-blur-md'
+            )}
+          >
+            <span className="font-semibold text-stone-100">{hoveredSegment.label}</span>
+            <span className="text-stone-400 ml-1.5">
+              {hoveredSegment.value} ({hoveredSegment.percentage.toFixed(1)}%)
+            </span>
+          </div>
         )}
-      >
-        {computedSegments.map((segment) => {
-          if (segment.percentage <= 0) return null;
 
-          const isHovered = hoveredIndex === segment.index;
+        {/* Outer Track */}
+        <div
+          className={cn(
+            'relative w-full flex items-stretch overflow-hidden rounded-full',
+            'bg-stone-800/80 border border-stone-800',
+            HEIGHT_CLASSES[size]
+          )}
+        >
+          {computedSegments.map((segment) => {
+            if (segment.visualPercentage <= 0) return null;
 
-          return (
-            <div
-              key={segment.id || segment.index}
-              data-testid={`${testID}-segment-${segment.index}`}
-              style={{
-                width: `${segment.percentage}%`,
-                transition: 'width 350ms cubic-bezier(0.16, 1, 0.3, 1), opacity 150ms ease-out',
-                backgroundColor: segment.color.startsWith('#') || segment.color.startsWith('rgb') ? segment.color : undefined,
-              }}
-              className={cn(
-                'relative h-full first:rounded-l-full last:rounded-r-full group cursor-pointer',
-                !segment.color.startsWith('#') && !segment.color.startsWith('rgb') ? segment.color : '',
-                isHovered && 'brightness-110'
-              )}
-              onMouseEnter={() => setHoveredIndex(segment.index)}
-              onMouseLeave={() => setHoveredIndex(null)}
-            >
-              {/* Inline Hover Tooltip */}
-              {showTooltips && isHovered && (
-                <div
-                  role="tooltip"
-                  data-testid={`${testID}-tooltip-${segment.index}`}
-                  className={cn(
-                    'absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-20 whitespace-nowrap pointer-events-none',
-                    'px-2 py-1 text-[11px] font-medium rounded-md shadow-lg',
-                    'bg-stone-900/95 border border-stone-700 text-stone-200 backdrop-blur-md'
-                  )}
-                >
-                  <span className="font-semibold text-stone-100">{segment.label}</span>
-                  <span className="text-stone-400 ml-1.5">
-                    {segment.value} ({segment.percentage.toFixed(1)}%)
-                  </span>
-                </div>
-              )}
-            </div>
-          );
-        })}
+            const isHovered = hoveredIndex === segment.index;
+
+            return (
+              <div
+                key={segment.id || segment.index}
+                data-testid={`${testID}-segment-${segment.index}`}
+                style={{
+                  width: `${segment.visualPercentage}%`,
+                  transition: 'width 350ms cubic-bezier(0.16, 1, 0.3, 1), opacity 150ms ease-out',
+                  backgroundColor: segment.color.startsWith('#') || segment.color.startsWith('rgb') ? segment.color : undefined,
+                }}
+                className={cn(
+                  'relative h-full first:rounded-l-full last:rounded-r-full group cursor-pointer',
+                  !segment.color.startsWith('#') && !segment.color.startsWith('rgb') ? segment.color : '',
+                  isHovered && 'brightness-110'
+                )}
+                onMouseEnter={() => setHoveredIndex(segment.index)}
+                onMouseLeave={() => setHoveredIndex(null)}
+              />
+            );
+          })}
+        </div>
       </div>
 
       {/* Legend */}

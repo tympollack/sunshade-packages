@@ -132,7 +132,7 @@ export function BottomSheet({
           e.preventDefault();
           onClose();
         }
-      } else if (e.key === 'Tab' && sheetRef.current) {
+      } else if (e.key === 'Tab' && sheetRef.current && isTopmostModal(sheetId)) {
         trapTabFocus(sheetRef.current, e);
       }
     };
@@ -147,6 +147,8 @@ export function BottomSheet({
     return null;
   }
 
+  const SNAP_ORDER: ('sm' | 'md' | 'lg' | 'full')[] = ['sm', 'md', 'lg', 'full'];
+
   // Touch gesture handling for drag-to-dismiss & snap points
   const handleTouchStart = (e: React.TouchEvent) => {
     startYRef.current = e.touches[0].clientY;
@@ -156,15 +158,13 @@ export function BottomSheet({
 
   const handleTouchMove = (e: React.TouchEvent) => {
     const deltaY = e.touches[0].clientY - startYRef.current;
+    currentDragYRef.current = deltaY;
     if (deltaY > 0) {
       // Dragging downwards
-      currentDragYRef.current = deltaY;
       setDragY(deltaY);
-    } else if (deltaY < -20 && snapPoints && snapPoints.length > 0) {
-      // Dragging upwards -> expand if snapPoints contain full or higher tier
-      if (currentSize !== 'full' && snapPoints.includes('full')) {
-        setCurrentSize('full');
-      }
+    } else {
+      // Slight resistance when dragging upwards
+      setDragY(Math.max(-40, deltaY * 0.3));
     }
   };
 
@@ -176,7 +176,18 @@ export function BottomSheet({
     if (currentDragYRef.current > threshold) {
       onClose();
     } else {
-      // Spring snap back
+      if (snapPoints && snapPoints.length > 0) {
+        const sortedConfigured = SNAP_ORDER.filter((s) => snapPoints.includes(s));
+        const currentIndex = sortedConfigured.indexOf(currentSize);
+
+        if (currentDragYRef.current < -30 && currentIndex < sortedConfigured.length - 1) {
+          // Dragged up: advance to next larger snap point
+          setCurrentSize(sortedConfigured[currentIndex + 1]);
+        } else if (currentDragYRef.current > 30 && currentIndex > 0) {
+          // Dragged down moderately: snap to smaller snap point
+          setCurrentSize(sortedConfigured[currentIndex - 1]);
+        }
+      }
       setDragY(0);
       currentDragYRef.current = 0;
     }

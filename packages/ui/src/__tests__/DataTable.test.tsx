@@ -126,4 +126,84 @@ describe('DataTable Primitive Component Suite', () => {
     expect(renderedRows.length).toBeLessThan(50);
     expect(renderedRows.length).toBeGreaterThan(0);
   });
+
+  it('clamps scroll window and prevents blank rows when dataset shrinks after deep scroll', () => {
+    const largeDataset: TestRecord[] = Array.from({ length: 500 }, (_, i) => ({
+      id: `row-${i}`,
+      name: `User ${i.toString().padStart(3, '0')}`,
+      role: 'Contributor',
+      score: i * 2,
+    }));
+
+    const { rerender } = render(
+      <DataTable
+        columns={columns}
+        data={largeDataset}
+        maxHeight={400}
+        rowHeight={40}
+        virtualized={true}
+        testID="test-table"
+      />
+    );
+
+    const scrollEl = screen.getByTestId('test-table-scroll-container');
+    expect(scrollEl).toBeDefined();
+
+    // Simulate scrolling deep into table
+    fireEvent.scroll(scrollEl, { target: { scrollTop: 10000 } });
+
+    // Now filter/shrink dataset to 5 rows
+    const filteredDataset = largeDataset.slice(0, 5);
+    rerender(
+      <DataTable
+        columns={columns}
+        data={filteredDataset}
+        maxHeight={400}
+        rowHeight={40}
+        virtualized={true}
+        testID="test-table"
+      />
+    );
+
+    // Records must be visible and rendered, not blank
+    const rows = screen.queryAllByTestId(/test-table-row-/);
+    expect(rows.length).toBe(5);
+    expect(screen.getByText('User 000')).toBeDefined();
+  });
+
+  it('preserves fixed row height geometry and clips tall custom cell content', () => {
+    const dataWithTallContent: TestRecord[] = [
+      { id: '1', name: 'Tall Row User', role: 'Tester', score: 99 },
+    ];
+
+    const tallColumns: ColumnDef<TestRecord>[] = [
+      {
+        key: 'name',
+        header: 'Name',
+        render: (val) => (
+          <div style={{ height: '200px' }} data-testid="tall-custom-cell">
+            {String(val)}
+          </div>
+        ),
+      },
+    ];
+
+    render(
+      <DataTable
+        columns={tallColumns}
+        data={dataWithTallContent}
+        rowHeight={44}
+        testID="tall-test-table"
+      />
+    );
+
+    const row = screen.getByTestId('tall-test-table-row-0');
+    expect(row.style.height).toBe('44px');
+    expect(row.style.maxHeight).toBe('44px');
+
+    const cell = row.querySelector('td');
+    expect(cell?.style.height).toBe('44px');
+    expect(cell?.style.maxHeight).toBe('44px');
+    expect(cell?.className).toContain('overflow-hidden');
+  });
 });

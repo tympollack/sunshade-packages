@@ -137,6 +137,14 @@ export function DropdownMenu({
     (e: KeyboardEvent) => {
       if (!open) return;
 
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        setOpen(false);
+        triggerRef.current?.focus();
+        return;
+      }
+
       const enabledIndices = items
         .map((it, idx) => (!it.disabled ? idx : -1))
         .filter((idx) => idx !== -1);
@@ -144,13 +152,6 @@ export function DropdownMenu({
       if (enabledIndices.length === 0) return;
 
       switch (e.key) {
-        case 'Escape': {
-          e.preventDefault();
-          e.stopPropagation();
-          setOpen(false);
-          triggerRef.current?.focus();
-          break;
-        }
         case 'ArrowDown': {
           e.preventDefault();
           setActiveIndex((prev) => {
@@ -181,8 +182,8 @@ export function DropdownMenu({
         }
         case 'Enter':
         case ' ': {
-          e.preventDefault();
           if (activeIndex >= 0 && activeIndex < items.length) {
+            e.preventDefault();
             const item = items[activeIndex];
             if (!item.disabled) {
               item.onClick?.();
@@ -262,6 +263,11 @@ export function DropdownMenu({
                   disabled={item.disabled}
                   data-testid={`${testID}-item-${idx}`}
                   data-active={isActive ? 'true' : undefined}
+                  onFocus={() => {
+                    if (!item.disabled) {
+                      setActiveIndex(idx);
+                    }
+                  }}
                   onClick={(e) => {
                     e.stopPropagation();
                     if (!item.disabled) {

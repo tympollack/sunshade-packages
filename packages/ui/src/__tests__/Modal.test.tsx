@@ -135,6 +135,40 @@ describe('Modal Primitive Component Suite', () => {
     // Focus restored to trigger button
     expect(document.activeElement).toBe(trigger);
   });
+
+  it('only traps Tab focus in the topmost modal when modals are stacked', () => {
+    function StackedModals() {
+      return (
+        <div>
+          <Modal isOpen={true} onClose={() => {}} title="Modal A" testID="modal-a">
+            <button data-testid="btn-a1">A1</button>
+            <button data-testid="btn-a2">A2</button>
+          </Modal>
+          <Modal isOpen={true} onClose={() => {}} title="Modal B" testID="modal-b">
+            <button data-testid="btn-b1">B1</button>
+            <button data-testid="btn-b2">B2</button>
+          </Modal>
+        </div>
+      );
+    }
+
+    render(<StackedModals />);
+    act(() => {
+      vi.advanceTimersByTime(20);
+    });
+
+    const btnB2 = screen.getByTestId('btn-b2');
+    const btnA1 = screen.getByTestId('btn-a1');
+
+    btnB2.focus();
+    expect(document.activeElement).toBe(btnB2);
+
+    // Press Tab while focused on btnB2
+    fireEvent.keyDown(window, { key: 'Tab' });
+
+    // Focus must NOT be hijacked to background Modal A
+    expect(document.activeElement).not.toBe(btnA1);
+  });
 });
 
 describe('BottomSheet Primitive Component Suite', () => {
@@ -224,5 +258,43 @@ describe('BottomSheet Primitive Component Suite', () => {
     fireEvent.touchEnd(handle);
 
     expect(handleClose).not.toHaveBeenCalled();
+  });
+
+  it('advances between intermediate snap points on upward and downward swipes', () => {
+    render(
+      <BottomSheet
+        isOpen={true}
+        onClose={() => {}}
+        size="sm"
+        snapPoints={['sm', 'md', 'lg']}
+        title="Snap Points Sheet"
+      >
+        <p>Snap points body</p>
+      </BottomSheet>
+    );
+
+    const sheet = screen.getByTestId('canopy-bottom-sheet');
+    Object.defineProperty(sheet, 'offsetHeight', { value: 600, configurable: true });
+
+    // Initial size is sm: max-h-[35vh]
+    expect(sheet.className).toContain('max-h-[35vh]');
+
+    const handle = screen.getByRole('separator');
+
+    // Drag up by 40px (deltaY = -40)
+    fireEvent.touchStart(handle, { touches: [{ clientY: 200 }] });
+    fireEvent.touchMove(handle, { touches: [{ clientY: 160 }] });
+    fireEvent.touchEnd(handle);
+
+    // Advances to md: max-h-[55vh]
+    expect(sheet.className).toContain('max-h-[55vh]');
+
+    // Drag up again by 40px
+    fireEvent.touchStart(handle, { touches: [{ clientY: 200 }] });
+    fireEvent.touchMove(handle, { touches: [{ clientY: 160 }] });
+    fireEvent.touchEnd(handle);
+
+    // Advances to lg: max-h-[75vh]
+    expect(sheet.className).toContain('max-h-[75vh]');
   });
 });

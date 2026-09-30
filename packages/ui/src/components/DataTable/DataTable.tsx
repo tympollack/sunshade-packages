@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import { cn } from '../../utils/cn';
 
 export type SortDirection = 'asc' | 'desc' | null;
@@ -103,13 +103,27 @@ export function DataTable<T extends Record<string, unknown>>({
   // Virtualization window calculations
   const totalRows = sortedData.length;
   const totalHeight = totalRows * rowHeight;
+  const maxScroll = Math.max(0, totalHeight - containerHeight);
   const overscan = 5;
 
-  const startIndex = shouldVirtualize
-    ? Math.max(0, Math.floor(scrollTop / rowHeight) - overscan)
+  // Clamp scrollTop and sync DOM scroll container when totalRows or filter shrinks
+  useEffect(() => {
+    if (!shouldVirtualize) return;
+    if (scrollTop > maxScroll) {
+      setScrollTop(maxScroll);
+      if (containerRef.current) {
+        containerRef.current.scrollTop = maxScroll;
+      }
+    }
+  }, [totalRows, maxScroll, scrollTop, shouldVirtualize]);
+
+  const effectiveScrollTop = Math.min(scrollTop, maxScroll);
+  const rawStartIndex = shouldVirtualize
+    ? Math.max(0, Math.floor(effectiveScrollTop / rowHeight) - overscan)
     : 0;
+  const startIndex = totalRows > 0 ? Math.min(rawStartIndex, totalRows - 1) : 0;
   const endIndex = shouldVirtualize
-    ? Math.min(totalRows, Math.ceil((scrollTop + containerHeight) / rowHeight) + overscan)
+    ? Math.min(totalRows, Math.ceil((effectiveScrollTop + containerHeight) / rowHeight) + overscan)
     : totalRows;
 
   const visibleRows = shouldVirtualize
@@ -140,6 +154,7 @@ export function DataTable<T extends Record<string, unknown>>({
     >
       <div
         ref={containerRef}
+        data-testid={`${testID}-scroll-container`}
         onScroll={handleScroll}
         style={{
           maxHeight: typeof maxHeight === 'number' ? `${maxHeight}px` : maxHeight,
@@ -223,7 +238,7 @@ export function DataTable<T extends Record<string, unknown>>({
                       key={rowId}
                       data-testid={`${testID}-row-${actualIndex}`}
                       onClick={() => onRowClick?.(row)}
-                      style={{ height: `${rowHeight}px` }}
+                      style={{ height: `${rowHeight}px`, maxHeight: `${rowHeight}px` }}
                       className={cn(
                         'group transition-colors border-b border-stone-800/50',
                         onRowClick ? 'cursor-pointer hover:bg-stone-800/50' : 'hover:bg-stone-800/30'
@@ -234,16 +249,34 @@ export function DataTable<T extends Record<string, unknown>>({
                         return (
                           <td
                             key={col.key}
-                            style={{ textAlign: col.align || 'left' }}
-                            className="px-4 py-2.5 text-stone-300 font-normal whitespace-nowrap"
+                            style={{
+                              textAlign: col.align || 'left',
+                              height: `${rowHeight}px`,
+                              maxHeight: `${rowHeight}px`,
+                            }}
+                            className="px-4 py-1.5 text-stone-300 font-normal whitespace-nowrap overflow-hidden"
                           >
-                            {col.render ? col.render(cellValue, row, actualIndex) : (cellValue as React.ReactNode)}
+                            <div
+                              style={{ maxHeight: `${rowHeight - 8}px` }}
+                              className="w-full overflow-hidden text-ellipsis flex items-center"
+                            >
+                              {col.render ? col.render(cellValue, row, actualIndex) : (cellValue as React.ReactNode)}
+                            </div>
                           </td>
                         );
                       })}
                       {rowActions && (
-                        <td className="px-4 py-2.5 text-right whitespace-nowrap">
-                          <div className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-150 inline-flex items-center gap-1.5 justify-end">
+                        <td
+                          style={{
+                            height: `${rowHeight}px`,
+                            maxHeight: `${rowHeight}px`,
+                          }}
+                          className="px-4 py-1.5 text-right whitespace-nowrap overflow-hidden"
+                        >
+                          <div
+                            style={{ maxHeight: `${rowHeight - 8}px` }}
+                            className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-150 inline-flex items-center gap-1.5 justify-end overflow-hidden"
+                          >
                             {rowActions(row)}
                           </div>
                         </td>
@@ -270,7 +303,7 @@ export function DataTable<T extends Record<string, unknown>>({
                     key={rowId}
                     data-testid={`${testID}-row-${index}`}
                     onClick={() => onRowClick?.(row)}
-                    style={{ height: `${rowHeight}px` }}
+                    style={{ height: `${rowHeight}px`, maxHeight: `${rowHeight}px` }}
                     className={cn(
                       'group transition-colors border-b border-stone-800/50',
                       onRowClick ? 'cursor-pointer hover:bg-stone-800/50' : 'hover:bg-stone-800/30'
@@ -281,16 +314,34 @@ export function DataTable<T extends Record<string, unknown>>({
                       return (
                         <td
                           key={col.key}
-                          style={{ textAlign: col.align || 'left' }}
-                          className="px-4 py-2.5 text-stone-300 font-normal whitespace-nowrap"
+                          style={{
+                            textAlign: col.align || 'left',
+                            height: `${rowHeight}px`,
+                            maxHeight: `${rowHeight}px`,
+                          }}
+                          className="px-4 py-1.5 text-stone-300 font-normal whitespace-nowrap overflow-hidden"
                         >
-                          {col.render ? col.render(cellValue, row, index) : (cellValue as React.ReactNode)}
+                          <div
+                            style={{ maxHeight: `${rowHeight - 8}px` }}
+                            className="w-full overflow-hidden text-ellipsis flex items-center"
+                          >
+                            {col.render ? col.render(cellValue, row, index) : (cellValue as React.ReactNode)}
+                          </div>
                         </td>
                       );
                     })}
                     {rowActions && (
-                      <td className="px-4 py-2.5 text-right whitespace-nowrap">
-                        <div className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-150 inline-flex items-center gap-1.5 justify-end">
+                      <td
+                        style={{
+                          height: `${rowHeight}px`,
+                          maxHeight: `${rowHeight}px`,
+                        }}
+                        className="px-4 py-1.5 text-right whitespace-nowrap overflow-hidden"
+                      >
+                        <div
+                          style={{ maxHeight: `${rowHeight - 8}px` }}
+                          className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-150 inline-flex items-center gap-1.5 justify-end overflow-hidden"
+                        >
                           {rowActions(row)}
                         </div>
                       </td>

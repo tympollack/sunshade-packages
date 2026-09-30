@@ -83,6 +83,37 @@ describe('ProgressBar Primitive Component Suite', () => {
     expect(screen.getByText('Low:')).toBeDefined();
     expect(screen.getByText('8')).toBeDefined();
   });
+
+  it('normalizes segment visual widths when sum exceeds total, preserving truthful tooltip percentages', () => {
+    const segments = [
+      { label: 'Primary', value: 80, color: '#38bdf8' },
+      { label: 'Secondary', value: 60, color: '#f59e0b' },
+    ];
+
+    render(<ProgressBar segments={segments} total={100} showTooltips testID="oversub-bar" />);
+
+    const seg0 = screen.getByTestId('oversub-bar-segment-0');
+    const seg1 = screen.getByTestId('oversub-bar-segment-1');
+
+    // Total sum is 140, total is 100. Visual total is 140 so both segments fit in 100% of the bar.
+    // seg0 visual width: 80/140 * 100 = ~57.14%
+    // seg1 visual width: 60/140 * 100 = ~42.86%
+    const w0 = parseFloat(seg0.style.width);
+    const w1 = parseFloat(seg1.style.width);
+    expect(w0 + w1).toBeCloseTo(100, 1);
+    expect(w0).toBeLessThan(80);
+    expect(w1).toBeGreaterThan(0);
+
+    // Hover tooltip displays truthful percentage relative to requested total (80.0% and 60.0%)
+    fireEvent.mouseEnter(seg0);
+    const tip0 = screen.getByTestId('oversub-bar-tooltip-0');
+    expect(tip0.textContent).toContain('80 (80.0%)');
+
+    fireEvent.mouseLeave(seg0);
+    fireEvent.mouseEnter(seg1);
+    const tip1 = screen.getByTestId('oversub-bar-tooltip-1');
+    expect(tip1.textContent).toContain('60 (60.0%)');
+  });
 });
 
 describe('Skeleton Primitive Component Suite', () => {

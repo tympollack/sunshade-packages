@@ -93,11 +93,14 @@ export function Tooltip({
   };
 
   const handleFocus = () => {
+    if (openTimerRef.current) clearTimeout(openTimerRef.current);
     if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
     setIsOpen(true);
   };
 
   const handleBlur = () => {
+    if (openTimerRef.current) clearTimeout(openTimerRef.current);
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
     setIsOpen(false);
   };
 

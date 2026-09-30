@@ -130,7 +130,7 @@ export function Modal({
           e.preventDefault();
           onClose();
         }
-      } else if (e.key === 'Tab' && dialogRef.current) {
+      } else if (e.key === 'Tab' && dialogRef.current && isTopmostModal(modalId)) {
         trapTabFocus(dialogRef.current, e);
       }
     };

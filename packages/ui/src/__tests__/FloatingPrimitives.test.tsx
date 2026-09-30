@@ -117,6 +117,39 @@ describe('Floating Primitives (Popover, Tooltip, DropdownMenu)', () => {
       fireEvent.blur(trigger);
       expect(screen.queryByTestId('test-tooltip')).toBeNull();
     });
+
+    it('cancels pending open timer when trigger is focused then blurred before hover delay expires', () => {
+      render(
+        <Tooltip content="Helper message" openDelay={200} testID="test-tooltip">
+          <button>Hover Me</button>
+        </Tooltip>
+      );
+
+      const trigger = screen.getByText('Hover Me');
+      // Hover schedules open timer in 200ms
+      fireEvent.mouseEnter(trigger);
+
+      // Focus after 50ms opens immediately
+      act(() => {
+        vi.advanceTimersByTime(50);
+      });
+      fireEvent.focus(trigger);
+      expect(screen.getByTestId('test-tooltip')).toBeDefined();
+
+      // Blur after 50ms (at t=100ms) closes tooltip
+      act(() => {
+        vi.advanceTimersByTime(50);
+      });
+      fireEvent.blur(trigger);
+      expect(screen.queryByTestId('test-tooltip')).toBeNull();
+
+      // Advance past the 200ms mark from initial hover
+      act(() => {
+        vi.advanceTimersByTime(150);
+      });
+      // The pending open timer must NOT reopen the tooltip
+      expect(screen.queryByTestId('test-tooltip')).toBeNull();
+    });
   });
 
   describe('DropdownMenu Primitive', () => {
@@ -198,6 +231,40 @@ describe('Floating Primitives (Popover, Tooltip, DropdownMenu)', () => {
       expect(screen.getByRole('menu')).toBeDefined();
 
       fireEvent.keyDown(window, { key: 'Escape' });
+      expect(screen.queryByRole('menu')).toBeNull();
+    });
+
+    it('closes on Escape even when all items are disabled', () => {
+      const items = [
+        { label: 'Disabled 1', disabled: true },
+        { label: 'Disabled 2', disabled: true },
+      ];
+
+      render(<DropdownMenu items={items} trigger={<button>Disabled Menu</button>} />);
+
+      fireEvent.click(screen.getByText('Disabled Menu'));
+      expect(screen.getByRole('menu')).toBeDefined();
+
+      fireEvent.keyDown(window, { key: 'Escape' });
+      expect(screen.queryByRole('menu')).toBeNull();
+    });
+
+    it('triggers action on Enter when item is focused via Tab', () => {
+      const handleAction = vi.fn();
+      const items = [{ label: 'Tab Item', onClick: handleAction }];
+
+      render(<DropdownMenu items={items} trigger={<button>Tab Menu</button>} />);
+
+      fireEvent.click(screen.getByText('Tab Menu'));
+      expect(screen.getByRole('menu')).toBeDefined();
+
+      const itemBtn = screen.getByText('Tab Item');
+      // User tabs onto the item button
+      fireEvent.focus(itemBtn);
+      // Press Enter
+      fireEvent.keyDown(window, { key: 'Enter' });
+
+      expect(handleAction).toHaveBeenCalledTimes(1);
       expect(screen.queryByRole('menu')).toBeNull();
     });
   });

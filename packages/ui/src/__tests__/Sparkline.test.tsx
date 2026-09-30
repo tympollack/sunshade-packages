@@ -73,4 +73,40 @@ describe('Sparkline Primitive Component Suite', () => {
     const singleCurve = screen.getByTestId('single-sparkline-curve');
     expect(singleCurve.getAttribute('d')).toContain('M');
   });
+
+  it('updates hovered value immediately when telemetry data updates under stationary pointer', () => {
+    const initialData = [10, 20, 30, 40, 50];
+    const { rerender } = render(
+      <Sparkline
+        data={initialData}
+        interactive={true}
+        testID="live-sparkline"
+      />
+    );
+
+    const container = screen.getByTestId('live-sparkline');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ left: 0, top: 0, width: 300, height: 80 }),
+      configurable: true,
+    });
+
+    // Hover at index 2 (x=150, value=30)
+    fireEvent.mouseMove(container, { clientX: 150 });
+    const tooltip = screen.getByTestId('live-sparkline-tooltip');
+    expect(tooltip.textContent).toContain('30');
+
+    // Telemetry updates under stationary pointer
+    const updatedData = [10, 20, 999, 40, 50];
+    rerender(
+      <Sparkline
+        data={updatedData}
+        interactive={true}
+        testID="live-sparkline"
+      />
+    );
+
+    // Hover tooltip updates to 999 without requiring a new pointer event
+    const updatedTooltip = screen.getByTestId('live-sparkline-tooltip');
+    expect(updatedTooltip.textContent).toContain('999');
+  });
 });
