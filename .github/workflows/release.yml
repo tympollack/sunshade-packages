@@ -4,12 +4,38 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      increment:
+        description: 'Version increment type (major, minor, patch)'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      package:
+        description: 'Target package to increment'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - '@digitalcanopy/ui'
+          - '@digitalcanopy/supabase'
+      publish:
+        description: 'Publish release to npm registry immediately'
+        required: true
+        default: true
+        type: boolean
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 permissions:
   contents: write
   pull-requests: write
+  id-token: write
 
 jobs:
   release:
@@ -18,6 +44,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -29,7 +57,30 @@ jobs:
       - name: Install dependencies
         run: npm install --legacy-peer-deps
 
+      - name: Apply manual version bump
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          node scripts/bump-version.mjs "${{ inputs.increment }}" "${{ inputs.package }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore(release): bump ${{ inputs.package }} version (${{ inputs.increment }}) [skip ci]" || echo "No changes to commit"
+          git push origin ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish manual release to npm
+        if: github.event_name == 'workflow_dispatch' && inputs.publish == true
+        run: |
+          npm run release
+          git push --tags || echo "No tags to push"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
       - name: Create Release Pull Request or Publish to npm
+        if: github.event_name == 'push'
         id: changesets
         uses: changesets/action@v1
         with:

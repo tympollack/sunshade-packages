@@ -7,7 +7,7 @@ export default defineConfig({
   resolve: {
     alias: {
       'react-native': 'react-native-web',
-      '@sunshade/ui': path.resolve(__dirname, './src'),
+      '@digitalcanopy/ui': path.resolve(__dirname, './src'),
     },
   },
   test: {

@@ -1,6 +1,6 @@
 'use client';
 import React, { useEffect, useState } from 'react';
-import { supabase } from '@sunshade/supabase';
+import { supabase } from '@digitalcanopy/supabase';
 
 function isTrustedRedirectHost(rawHost: string): boolean {
   if (!rawHost || typeof rawHost !== 'string') return false;
