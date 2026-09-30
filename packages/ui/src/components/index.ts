@@ -14,3 +14,4 @@ export * from './Dropdown';
 export * from './ProgressBar';
 export * from './Skeleton';
 export * from './DataTable';
+export * from './Sparkline';
