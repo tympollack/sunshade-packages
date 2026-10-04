@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import https from 'node:https';
+import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -70,9 +71,18 @@ export async function verifyCdnEndpoint(url) {
   });
 }
 
+/**
+ * Uploads a file to Cloudflare R2 bucket with configured cache headers.
+ */
+export function uploadFileToR2(bucket, r2Key, filePath, cacheControl = CACHE_CONTROL_HEADER) {
+  const cmd = `npx wrangler r2 object put "${bucket}/${r2Key}" --file "${filePath}" --cache-control "${cacheControl}"`;
+  execSync(cmd, { stdio: 'inherit' });
+}
+
 export async function runSync(options = {}) {
-  const isDryRun = options.dryRun || process.argv.includes('--dry-run');
-  const isVerifyOnly = options.verifyOnly || process.argv.includes('--verify-only');
+  const isDryRun = options.dryRun ?? (process.argv.includes('--dry-run'));
+  const isVerifyOnly = options.verifyOnly ?? (process.argv.includes('--verify-only'));
+  const uploader = options.uploader || uploadFileToR2;
 
   console.log('⚡ Cloudflare R2 Kenney Ingestion Engine');
   console.log(`🪣 Bucket: ${R2_BUCKET}`);
@@ -89,21 +99,33 @@ export async function runSync(options = {}) {
       `${CDN_BASE_URL}/ui-pack/sounds/click-a.ogg`,
     ];
 
+    let allSuccess = true;
     for (const url of testUrls) {
       const res = await verifyCdnEndpoint(url);
       console.log(`- ${url} => Status: ${res.statusCode}, CF-Cache: ${res.cfCacheStatus || 'N/A'}`);
+      if (!res.isSuccess) {
+        allSuccess = false;
+      }
     }
-    return;
+
+    if (!allSuccess) {
+      console.error('❌ CDN endpoint reachability verification failed: one or more assets unavailable.');
+      process.exitCode = 1;
+      return { success: false };
+    }
+
+    console.log('✅ All CDN endpoints verified successfully.');
+    return { success: true };
   }
 
   // Scan local packs and validate target taxonomy paths
   if (!fs.existsSync(SOURCE_DIR)) {
     console.warn(`⚠️ Source directory not found: ${SOURCE_DIR}. Running in mock/dry-run mode.`);
-    return;
+    return { success: true, uploaded: 0, validTaxonomyCount: 0 };
   }
 
   const stagedPacks = fs.readdirSync(SOURCE_DIR, { withFileTypes: true }).filter((d) => d.isDirectory());
-  let validTaxonomyCount = 0;
+  const validFiles = [];
   let invalidTaxonomyCount = 0;
 
   console.log(`📦 Scanning ${stagedPacks.length} packs for taxonomy validation...`);
@@ -123,7 +145,7 @@ export async function runSync(options = {}) {
           const r2Key = `assets/kenney/${packSlug}/${entryRel.replace(/\\/g, '/')}`;
           const validation = validateTaxonomyPath(r2Key);
           if (validation.valid) {
-            validTaxonomyCount++;
+            validFiles.push({ fullPath, r2Key });
           } else {
             invalidTaxonomyCount++;
           }
@@ -134,16 +156,45 @@ export async function runSync(options = {}) {
     walkAndValidate(packPath);
   }
 
-  console.log(`✅ Taxonomy validation complete: ${validTaxonomyCount} valid keys, ${invalidTaxonomyCount} invalid keys.`);
-  console.log(`📋 R2 Upload Command Template:`);
-  console.log(`   npx wrangler r2 object put "${R2_BUCKET}/assets/kenney/<pack>/<path>" --file "<file>" \\`);
-  console.log(`     --cache-control "${CACHE_CONTROL_HEADER}"`);
+  // Also include any generated atlas image sheets in packages/assets/dist/atlases
+  const atlasesDir = path.resolve(REPO_ROOT, 'packages/assets/dist/atlases');
+  if (fs.existsSync(atlasesDir)) {
+    const atlasFiles = fs.readdirSync(atlasesDir).filter((f) => f.endsWith('.png'));
+    for (const atlasFile of atlasFiles) {
+      const packSlug = atlasFile.replace(/-atlas\.png$/, '').replace('playing-cards', 'cards');
+      const r2Key = `assets/kenney/${packSlug}/${atlasFile}`;
+      validFiles.push({ fullPath: path.join(atlasesDir, atlasFile), r2Key });
+    }
+  }
+
+  console.log(`✅ Taxonomy validation complete: ${validFiles.length} valid keys, ${invalidTaxonomyCount} invalid keys.`);
 
   if (isDryRun) {
     console.log('\nℹ️ Dry-run mode completed. Zero remote mutations committed.');
+    console.log(`📋 R2 Upload Command Template:`);
+    console.log(`   npx wrangler r2 object put "${R2_BUCKET}/assets/kenney/<pack>/<path>" --file "<file>" \\`);
+    console.log(`     --cache-control "${CACHE_CONTROL_HEADER}"`);
+    return { success: true, uploaded: 0, validTaxonomyCount: validFiles.length };
   }
+
+  console.log(`\n🚀 Uploading ${validFiles.length} validated files to R2 bucket '${R2_BUCKET}'...`);
+  for (const file of validFiles) {
+    try {
+      uploader(R2_BUCKET, file.r2Key, file.fullPath, CACHE_CONTROL_HEADER);
+    } catch (err) {
+      console.error(`❌ Failed to upload ${file.r2Key}:`, err.message);
+      process.exitCode = 1;
+      throw err;
+    }
+  }
+
+  console.log(`✅ Upload complete: ${validFiles.length} files synchronized to R2.`);
+  return { success: true, uploaded: validFiles.length, validTaxonomyCount: validFiles.length };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  runSync().catch(console.error);
+  runSync().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
 }

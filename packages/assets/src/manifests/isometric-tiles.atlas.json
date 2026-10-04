@@ -6,7 +6,7 @@
     "format": "RGBA8888",
     "size": {
       "w": 2048,
-      "h": 512
+      "h": 384
     },
     "scale": "1",
     "pack": "isometric-tiles"

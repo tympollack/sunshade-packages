@@ -2,13 +2,95 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PNG } from 'pngjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const MANIFESTS_DIR = path.resolve(__dirname, '../src/manifests');
+const DIST_ATLASES_DIR = path.resolve(__dirname, '../dist/atlases');
 
 if (!fs.existsSync(MANIFESTS_DIR)) {
   fs.mkdirSync(MANIFESTS_DIR, { recursive: true });
+}
+
+export function calculateMaxBottom(frames) {
+  const values = Object.values(frames);
+  if (values.length === 0) return 0;
+  return Math.max(...values.map((f) => f.frame.y + f.frame.h));
+}
+
+export function calculateMaxRight(frames) {
+  const values = Object.values(frames);
+  if (values.length === 0) return 0;
+  return Math.max(...values.map((f) => f.frame.x + f.frame.w));
+}
+
+/**
+ * Creates an actual, valid PNG atlas image buffer corresponding to the manifest layout.
+ * If source sprites exist in spritesDir, composites them onto the canvas.
+ * Otherwise, generates an accurate framed canvas with pixel-matching dimensions.
+ */
+export function createAtlasPng(manifest, spritesDir = null) {
+  const { w, h } = manifest.meta.size;
+  const atlas = new PNG({ width: w, height: h });
+
+  for (const [key, frameData] of Object.entries(manifest.frames)) {
+    const { x, y, w: fw, h: fh } = frameData.frame;
+    let composited = false;
+
+    if (spritesDir && fs.existsSync(spritesDir)) {
+      const candidates = [
+        path.join(spritesDir, `${key}.png`),
+        path.join(spritesDir, key.replace(/^char-[a-z]+-/, '') + '.png'),
+        path.join(spritesDir, key.replace(/^tile-isometric-/, '') + '.png'),
+        path.join(spritesDir, key.replace(/^button-/, '') + '.png'),
+      ];
+      for (const candidate of candidates) {
+        if (fs.existsSync(candidate)) {
+          try {
+            const spritePng = PNG.sync.read(fs.readFileSync(candidate));
+            PNG.bitblt(
+              spritePng,
+              atlas,
+              0,
+              0,
+              Math.min(fw, spritePng.width),
+              Math.min(fh, spritePng.height),
+              x,
+              y
+            );
+            composited = true;
+            break;
+          } catch {
+            // fallback to rendered frame
+          }
+        }
+      }
+    }
+
+    if (!composited) {
+      // Draw crisp frame boundaries so the generated sheet is visually inspectable
+      for (let px = 0; px < fw; px++) {
+        for (let py = 0; py < fh; py++) {
+          const idx = ((y + py) * w + (x + px)) << 2;
+          const isBorder = px === 0 || px === fw - 1 || py === 0 || py === fh - 1;
+          if (isBorder) {
+            atlas.data[idx] = 180;
+            atlas.data[idx + 1] = 190;
+            atlas.data[idx + 2] = 210;
+            atlas.data[idx + 3] = 255;
+          } else {
+            atlas.data[idx] = 25;
+            atlas.data[idx + 1] = 30;
+            atlas.data[idx + 2] = 40;
+            atlas.data[idx + 3] = 230;
+          }
+        }
+      }
+    }
+  }
+
+  return PNG.sync.write(atlas);
 }
 
 // ─── 1. Playing Cards Atlas ──────────────────────────────────────────────────
@@ -69,18 +151,12 @@ const playingCardsAtlas = {
     version: '1.0.0',
     image: 'https://cdn.sunshade.icu/assets/kenney/cards/playing-cards-atlas.png',
     format: 'RGBA8888',
-    size: { w: ATLAS_MAX_W, h: cardY + CARD_H },
+    size: { w: ATLAS_MAX_W, h: calculateMaxBottom(playingCardFrames) },
     scale: '1',
     pack: 'playing-cards',
   },
   frames: playingCardFrames,
 };
-
-fs.writeFileSync(
-  path.join(MANIFESTS_DIR, 'playing-cards.atlas.json'),
-  JSON.stringify(playingCardsAtlas, null, 2),
-  'utf-8'
-);
 
 // ─── 2. Isometric Tiles Atlas ────────────────────────────────────────────────
 const ISO_TILE_NAMES = [
@@ -138,18 +214,12 @@ const isometricAtlas = {
     version: '1.0.0',
     image: 'https://cdn.sunshade.icu/assets/kenney/isometric-miniature-dungeon/isometric-tiles-atlas.png',
     format: 'RGBA8888',
-    size: { w: ATLAS_MAX_W, h: isoY + ISO_H },
+    size: { w: ATLAS_MAX_W, h: calculateMaxBottom(isoFrames) },
     scale: '1',
     pack: 'isometric-tiles',
   },
   frames: isoFrames,
 };
-
-fs.writeFileSync(
-  path.join(MANIFESTS_DIR, 'isometric-tiles.atlas.json'),
-  JSON.stringify(isometricAtlas, null, 2),
-  'utf-8'
-);
 
 // ─── 3. Modular Characters Atlas ─────────────────────────────────────────────
 const CHAR_CATEGORIES = {
@@ -194,18 +264,12 @@ const charactersAtlas = {
     version: '1.0.0',
     image: 'https://cdn.sunshade.icu/assets/kenney/modular-characters/modular-characters-atlas.png',
     format: 'RGBA8888',
-    size: { w: ATLAS_MAX_W, h: charY + CHAR_H },
+    size: { w: ATLAS_MAX_W, h: calculateMaxBottom(charFrames) },
     scale: '1',
     pack: 'modular-characters',
   },
   frames: charFrames,
 };
-
-fs.writeFileSync(
-  path.join(MANIFESTS_DIR, 'modular-characters.atlas.json'),
-  JSON.stringify(charactersAtlas, null, 2),
-  'utf-8'
-);
 
 // ─── 4. UI Sprites Atlas ─────────────────────────────────────────────────────
 const UI_SPRITE_NAMES = [
@@ -262,21 +326,39 @@ const uiAtlas = {
     version: '1.0.0',
     image: 'https://cdn.sunshade.icu/assets/kenney/ui-pack/ui-sprites-atlas.png',
     format: 'RGBA8888',
-    size: { w: ATLAS_MAX_W, h: uiY + UI_H },
+    size: { w: ATLAS_MAX_W, h: calculateMaxBottom(uiFrames) },
     scale: '1',
     pack: 'ui-sprites',
   },
   frames: uiFrames,
 };
 
-fs.writeFileSync(
-  path.join(MANIFESTS_DIR, 'ui-sprites.atlas.json'),
-  JSON.stringify(uiAtlas, null, 2),
-  'utf-8'
-);
+// ─── 5. Generator Function ──────────────────────────────────────────────────
+export function generateAllManifests(options = {}) {
+  const manifestsDir = options.manifestsDir || MANIFESTS_DIR;
+  const generateImages = options.generateImages ?? true;
+  const imagesDir = options.imagesDir || DIST_ATLASES_DIR;
 
-// ─── 5. TypeScript Types & Constants Generator ──────────────────────────────
-const keysTsContent = `/**
+  if (!fs.existsSync(manifestsDir)) {
+    fs.mkdirSync(manifestsDir, { recursive: true });
+  }
+
+  const manifests = [
+    { name: 'playing-cards.atlas.json', imageName: 'playing-cards-atlas.png', data: playingCardsAtlas },
+    { name: 'isometric-tiles.atlas.json', imageName: 'isometric-tiles-atlas.png', data: isometricAtlas },
+    { name: 'modular-characters.atlas.json', imageName: 'modular-characters-atlas.png', data: charactersAtlas },
+    { name: 'ui-sprites.atlas.json', imageName: 'ui-sprites-atlas.png', data: uiAtlas },
+  ];
+
+  for (const item of manifests) {
+    fs.writeFileSync(
+      path.join(manifestsDir, item.name),
+      JSON.stringify(item.data, null, 2),
+      'utf-8'
+    );
+  }
+
+  const keysTsContent = `/**
  * Autocomplete Key Definitions and Constants for Kenney Asset Packs
  * Generated by sunshade-atlas-pipeline
  */
@@ -294,11 +376,34 @@ export const UI_SPRITES = ${JSON.stringify(UI_SPRITE_NAMES, null, 2)} as const;
 export type UiSpriteKey = (typeof UI_SPRITES)[number];
 `;
 
-fs.writeFileSync(path.join(MANIFESTS_DIR, 'keys.ts'), keysTsContent, 'utf-8');
+  fs.writeFileSync(path.join(manifestsDir, 'keys.ts'), keysTsContent, 'utf-8');
 
-console.log('✅ Generated lightweight atlas manifests:');
-console.log('  - playing-cards.atlas.json');
-console.log('  - isometric-tiles.atlas.json');
-console.log('  - modular-characters.atlas.json');
-console.log('  - ui-sprites.atlas.json');
-console.log('  - keys.ts (with strict TypeScript types & constants)\n');
+  if (generateImages) {
+    if (!fs.existsSync(imagesDir)) {
+      fs.mkdirSync(imagesDir, { recursive: true });
+    }
+    for (const item of manifests) {
+      const buffer = createAtlasPng(item.data, options.spritesDir);
+      fs.writeFileSync(path.join(imagesDir, item.imageName), buffer);
+    }
+    console.log(`🖼️  Generated ${manifests.length} atlas PNG sheets in ${imagesDir}`);
+  }
+
+  return { manifests, keysCount: playingCardKeys.length + ISO_TILE_NAMES.length + charKeys.length + UI_SPRITE_NAMES.length };
+}
+
+// ─── CLI Execution ───────────────────────────────────────────────────────────
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  try {
+    const res = generateAllManifests();
+    console.log('✅ Generated lightweight atlas manifests:');
+    console.log('  - playing-cards.atlas.json');
+    console.log('  - isometric-tiles.atlas.json');
+    console.log('  - modular-characters.atlas.json');
+    console.log('  - ui-sprites.atlas.json');
+    console.log('  - keys.ts (with strict TypeScript types & constants)\n');
+  } catch (err) {
+    console.error('❌ Manifest generation failed:', err);
+    process.exitCode = 1;
+  }
+}

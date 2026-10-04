@@ -42,6 +42,8 @@ describe('@sunshade/assets Atlas Manifests', () => {
       expect(isometricTilesAtlas.meta.image).toBe(
         'https://cdn.sunshade.icu/assets/kenney/isometric-miniature-dungeon/isometric-tiles-atlas.png'
       );
+      expect(isometricTilesAtlas.meta.size.w).toBe(2048);
+      expect(isometricTilesAtlas.meta.size.h).toBe(384);
     });
 
     it('contains all isometric tiles defined in ISOMETRIC_TILES keys', () => {
