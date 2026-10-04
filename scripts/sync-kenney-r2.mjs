@@ -13,9 +13,7 @@ const R2_BUCKET = process.env.R2_BUCKET || 'sunshade-game-assets';
 const CDN_BASE_URL = process.env.CDN_BASE_URL || 'https://cdn.sunshade.icu/assets/kenney';
 const SOURCE_DIR =
   process.env.SOURCE_DIR ||
-  (fs.existsSync('C:\\Users\\Tymz\\dev\\downloaded_assets\\kenney.nl')
-    ? 'C:\\Users\\Tymz\\dev\\downloaded_assets\\kenney.nl'
-    : path.resolve(REPO_ROOT, '../downloaded_assets/kenney.nl'));
+  path.resolve(REPO_ROOT, '../downloaded_assets/kenney.nl');
 
 const CACHE_CONTROL_HEADER = 'public, max-age=31536000, immutable';
 const CORS_HEADER = '*';
@@ -83,11 +81,12 @@ export async function runSync(options = {}) {
   const isDryRun = options.dryRun ?? (process.argv.includes('--dry-run'));
   const isVerifyOnly = options.verifyOnly ?? (process.argv.includes('--verify-only'));
   const uploader = options.uploader || uploadFileToR2;
+  const targetSourceDir = options.sourceDir || SOURCE_DIR;
 
   console.log('⚡ Cloudflare R2 Kenney Ingestion Engine');
   console.log(`🪣 Bucket: ${R2_BUCKET}`);
   console.log(`🌐 Edge CDN: ${CDN_BASE_URL}`);
-  console.log(`📂 Source: ${SOURCE_DIR}`);
+  console.log(`📂 Source: ${targetSourceDir}`);
   console.log(`🔒 Cache-Control: ${CACHE_CONTROL_HEADER}`);
   console.log(`🌐 CORS: ${CORS_HEADER}\n`);
 
@@ -119,12 +118,12 @@ export async function runSync(options = {}) {
   }
 
   // Scan local packs and validate target taxonomy paths
-  if (!fs.existsSync(SOURCE_DIR)) {
-    console.warn(`⚠️ Source directory not found: ${SOURCE_DIR}. Running in mock/dry-run mode.`);
+  if (!fs.existsSync(targetSourceDir)) {
+    console.warn(`⚠️ Source directory not found: ${targetSourceDir}. Running in mock/dry-run mode.`);
     return { success: true, uploaded: 0, validTaxonomyCount: 0 };
   }
 
-  const stagedPacks = fs.readdirSync(SOURCE_DIR, { withFileTypes: true }).filter((d) => d.isDirectory());
+  const stagedPacks = fs.readdirSync(targetSourceDir, { withFileTypes: true }).filter((d) => d.isDirectory());
   const validFiles = [];
   let invalidTaxonomyCount = 0;
 
@@ -132,7 +131,7 @@ export async function runSync(options = {}) {
 
   for (const pack of stagedPacks) {
     const packSlug = pack.name.replace(/^kenney_/, '');
-    const packPath = path.join(SOURCE_DIR, pack.name);
+    const packPath = path.join(targetSourceDir, pack.name);
 
     function walkAndValidate(dir, relPath = '') {
       for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -156,9 +155,10 @@ export async function runSync(options = {}) {
     walkAndValidate(packPath);
   }
 
-  // Also include any generated atlas image sheets in packages/assets/dist/atlases
-  const atlasesDir = path.resolve(REPO_ROOT, 'packages/assets/dist/atlases');
-  if (fs.existsSync(atlasesDir)) {
+  // Optionally include generated atlas image sheets
+  const includeAtlases = options.includeAtlases ?? process.argv.includes('--include-atlases');
+  const atlasesDir = options.atlasesDir || (includeAtlases ? path.resolve(REPO_ROOT, 'packages/assets/dist/atlases') : null);
+  if (atlasesDir && fs.existsSync(atlasesDir)) {
     const atlasFiles = fs.readdirSync(atlasesDir).filter((f) => f.endsWith('.png'));
     for (const atlasFile of atlasFiles) {
       const packSlug = atlasFile.replace(/-atlas\.png$/, '').replace('playing-cards', 'cards');
