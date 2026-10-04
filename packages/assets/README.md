@@ -19,7 +19,7 @@ yarn add @digitalcanopy/assets
   - `getKenneyCharacterUrl(category, itemKey, extension)`
   - `getKenneyAudioUrl(soundName, extension)`
 - **Flame & WebGL Atlas Manifests**:
-  - `playingCardsAtlas`: 54 cards + 6 card back variations (140x190 frames).
+  - `playingCardsAtlas`: 52 face cards + 6 card back variations (140x190 frames).
   - `isometricTilesAtlas`: 24 2.5D isometric tiles with pivot anchors `(0.5, 0.75)`.
   - `modularCharactersAtlas`: 35 modular avatar components across 6 categories.
   - `uiSpritesAtlas`: 23 UI elements (buttons, panels, icons, progress bars).
