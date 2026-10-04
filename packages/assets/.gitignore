@@ -1,0 +1,16 @@
+# Prevent binary asset commits in application & package repositories
+# Assets are hosted exclusively via Cloudflare R2 (https://cdn.sunshade.icu/assets/kenney/)
+*.png
+*.svg
+*.wav
+*.ogg
+*.mp3
+*.jpg
+*.jpeg
+*.glb
+*.obj
+*.mtl
+*.fbx
+dist/
+raw/
+.turbo/

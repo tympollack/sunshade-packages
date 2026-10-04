@@ -1,0 +1,1408 @@
+{
+  "meta": {
+    "app": "sunshade-atlas-pipeline",
+    "version": "1.0.0",
+    "image": "https://cdn.sunshade.icu/assets/kenney/cards/playing-cards-atlas.png",
+    "format": "RGBA8888",
+    "size": {
+      "w": 2048,
+      "h": 950
+    },
+    "scale": "1",
+    "pack": "playing-cards"
+  },
+  "frames": {
+    "card-spades-a": {
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-spades-02": {
+      "frame": {
+        "x": 140,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-spades-03": {
+      "frame": {
+        "x": 280,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-spades-04": {
+      "frame": {
+        "x": 420,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-spades-05": {
+      "frame": {
+        "x": 560,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-spades-06": {
+      "frame": {
+        "x": 700,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-spades-07": {
+      "frame": {
+        "x": 840,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-spades-08": {
+      "frame": {
+        "x": 980,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-spades-09": {
+      "frame": {
+        "x": 1120,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-spades-10": {
+      "frame": {
+        "x": 1260,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-spades-j": {
+      "frame": {
+        "x": 1400,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-spades-q": {
+      "frame": {
+        "x": 1540,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-spades-k": {
+      "frame": {
+        "x": 1680,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-hearts-a": {
+      "frame": {
+        "x": 1820,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-hearts-02": {
+      "frame": {
+        "x": 0,
+        "y": 190,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-hearts-03": {
+      "frame": {
+        "x": 140,
+        "y": 190,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-hearts-04": {
+      "frame": {
+        "x": 280,
+        "y": 190,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-hearts-05": {
+      "frame": {
+        "x": 420,
+        "y": 190,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-hearts-06": {
+      "frame": {
+        "x": 560,
+        "y": 190,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-hearts-07": {
+      "frame": {
+        "x": 700,
+        "y": 190,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-hearts-08": {
+      "frame": {
+        "x": 840,
+        "y": 190,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-hearts-09": {
+      "frame": {
+        "x": 980,
+        "y": 190,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-hearts-10": {
+      "frame": {
+        "x": 1120,
+        "y": 190,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-hearts-j": {
+      "frame": {
+        "x": 1260,
+        "y": 190,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-hearts-q": {
+      "frame": {
+        "x": 1400,
+        "y": 190,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-hearts-k": {
+      "frame": {
+        "x": 1540,
+        "y": 190,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-clubs-a": {
+      "frame": {
+        "x": 1680,
+        "y": 190,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-clubs-02": {
+      "frame": {
+        "x": 1820,
+        "y": 190,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-clubs-03": {
+      "frame": {
+        "x": 0,
+        "y": 380,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-clubs-04": {
+      "frame": {
+        "x": 140,
+        "y": 380,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-clubs-05": {
+      "frame": {
+        "x": 280,
+        "y": 380,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-clubs-06": {
+      "frame": {
+        "x": 420,
+        "y": 380,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-clubs-07": {
+      "frame": {
+        "x": 560,
+        "y": 380,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-clubs-08": {
+      "frame": {
+        "x": 700,
+        "y": 380,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-clubs-09": {
+      "frame": {
+        "x": 840,
+        "y": 380,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-clubs-10": {
+      "frame": {
+        "x": 980,
+        "y": 380,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-clubs-j": {
+      "frame": {
+        "x": 1120,
+        "y": 380,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-clubs-q": {
+      "frame": {
+        "x": 1260,
+        "y": 380,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-clubs-k": {
+      "frame": {
+        "x": 1400,
+        "y": 380,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-diamonds-a": {
+      "frame": {
+        "x": 1540,
+        "y": 380,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-diamonds-02": {
+      "frame": {
+        "x": 1680,
+        "y": 380,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-diamonds-03": {
+      "frame": {
+        "x": 1820,
+        "y": 380,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-diamonds-04": {
+      "frame": {
+        "x": 0,
+        "y": 570,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-diamonds-05": {
+      "frame": {
+        "x": 140,
+        "y": 570,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-diamonds-06": {
+      "frame": {
+        "x": 280,
+        "y": 570,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-diamonds-07": {
+      "frame": {
+        "x": 420,
+        "y": 570,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-diamonds-08": {
+      "frame": {
+        "x": 560,
+        "y": 570,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-diamonds-09": {
+      "frame": {
+        "x": 700,
+        "y": 570,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-diamonds-10": {
+      "frame": {
+        "x": 840,
+        "y": 570,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-diamonds-j": {
+      "frame": {
+        "x": 980,
+        "y": 570,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-diamonds-q": {
+      "frame": {
+        "x": 1120,
+        "y": 570,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "card-diamonds-k": {
+      "frame": {
+        "x": 1260,
+        "y": 570,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "cardback-blue": {
+      "frame": {
+        "x": 1400,
+        "y": 570,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "cardback-red": {
+      "frame": {
+        "x": 1540,
+        "y": 570,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "cardback-green": {
+      "frame": {
+        "x": 1680,
+        "y": 570,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "cardback-yellow": {
+      "frame": {
+        "x": 1820,
+        "y": 570,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "cardback-cyan": {
+      "frame": {
+        "x": 0,
+        "y": 760,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    },
+    "cardback-default": {
+      "frame": {
+        "x": 140,
+        "y": 760,
+        "w": 140,
+        "h": 190
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 140,
+        "h": 190
+      },
+      "sourceSize": {
+        "w": 140,
+        "h": 190
+      },
+      "anchor": {
+        "ax": 0.5,
+        "ay": 0.5
+      }
+    }
+  }
+}
