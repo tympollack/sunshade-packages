@@ -12,7 +12,7 @@ import {
   UI_SPRITES,
 } from '../manifests/index';
 
-describe('@sunshade/assets Atlas Manifests', () => {
+describe('@digitalcanopy/assets Atlas Manifests', () => {
   describe('Playing Cards Atlas', () => {
     it('has valid metadata and image path', () => {
       expect(playingCardsAtlas.meta.pack).toBe('playing-cards');
