@@ -17,8 +17,8 @@ if (targetPkg === 'all' || targetPkg === '@digitalcanopy/ui') {
 if (targetPkg === 'all' || targetPkg === '@digitalcanopy/supabase') {
   content += `"@digitalcanopy/supabase": ${increment}\n`;
 }
-if (targetPkg === 'all' || targetPkg === '@digitalcanopy/assets') {
-  content += `"@digitalcanopy/assets": ${increment}\n`;
+if (targetPkg === 'all' || targetPkg === '@sunshade/assets' || targetPkg === '@digitalcanopy/assets') {
+  content += `"@sunshade/assets": ${increment}\n`;
 }
 content += `---\n\nManual ${increment} release for ${targetPkg}\n`;
 

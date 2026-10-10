@@ -1,13 +1,13 @@
-# @digitalcanopy/assets
+# @sunshade/assets
 
-Decoupled game and application asset ecosystem for SunShade & Digital Canopy. Hosts zero binary media in repositories, resolving images and audio through Cloudflare R2 edge CDN and providing lightweight Flame/WebGL JSON sprite manifests with strict TypeScript autocomplete keys.
+Decoupled game and application asset ecosystem for SunShade. Hosts zero binary media in repositories, resolving images and audio through Cloudflare R2 edge CDN and providing lightweight Flame/WebGL JSON sprite manifests with strict TypeScript autocomplete keys.
 
 ## Installation
 
 ```bash
-npm install @digitalcanopy/assets
+npm install @sunshade/assets
 # or
-yarn add @digitalcanopy/assets
+yarn add @sunshade/assets
 ```
 
 ## Features
