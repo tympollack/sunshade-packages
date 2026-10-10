@@ -24,7 +24,6 @@ on:
           - all
           - '@digitalcanopy/ui'
           - '@digitalcanopy/supabase'
-          - '@sunshade/assets'
           - '@digitalcanopy/assets'
       publish:
         description: 'Publish release to npm registry immediately'

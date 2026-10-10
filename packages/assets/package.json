@@ -1,5 +1,5 @@
 {
-  "name": "@sunshade/assets",
+  "name": "@digitalcanopy/assets",
   "version": "1.0.0",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",

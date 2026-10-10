@@ -7,7 +7,7 @@ import {
   getKenneyCharacterUrl,
 } from '../resolvers/cdn';
 
-describe('@sunshade/assets CDN Resolvers', () => {
+describe('@digitalcanopy/assets CDN Resolvers', () => {
   it('resolves base CDN URL correctly', () => {
     expect(CDN_BASE_URL).toBe('https://cdn.sunshade.icu/assets/kenney');
   });
