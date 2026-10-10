@@ -8,14 +8,27 @@
     "access": "public"
   },
   "exports": {
-    ".": "./src/index.ts",
-    "./manifests": "./src/manifests/index.ts",
-    "./resolvers": "./src/resolvers/cdn.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    },
+    "./manifests": {
+      "types": "./dist/manifests/index.d.ts",
+      "import": "./dist/manifests/index.mjs",
+      "require": "./dist/manifests/index.js"
+    },
+    "./resolvers": {
+      "types": "./dist/resolvers/cdn.d.ts",
+      "import": "./dist/resolvers/cdn.mjs",
+      "require": "./dist/resolvers/cdn.js"
+    }
   },
   "scripts": {
     "build": "tsup src/index.ts src/manifests/index.ts src/resolvers/cdn.ts --dts --format cjs,esm",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:boundaries": "vitest run"
   },
   "devDependencies": {
     "@types/pngjs": "^6.0.5",
