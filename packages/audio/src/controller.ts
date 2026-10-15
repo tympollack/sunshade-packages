@@ -82,6 +82,7 @@ export class AudioController {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
   private sfxGain: GainNode | null = null;
+  private isContextOwned = false;
   private settings: AudioSettings;
   private storageKey: string;
   private disableStorage: boolean;
@@ -90,12 +91,12 @@ export class AudioController {
     this.storageKey = config?.storageKey ?? DEFAULT_STORAGE_KEY;
     this.disableStorage = config?.disableStorage ?? false;
 
-    // Load initial settings with storage fallback
+    // Load initial settings with storage fallback (persisted user settings take precedence over defaultSettings)
     const persisted = this.loadPersistedSettings();
     this.settings = {
-      masterVolume: config?.defaultSettings?.masterVolume ?? persisted?.masterVolume ?? 1.0,
-      isMuted: config?.defaultSettings?.isMuted ?? persisted?.isMuted ?? false,
-      sfxVolume: config?.defaultSettings?.sfxVolume ?? persisted?.sfxVolume ?? 1.0,
+      masterVolume: persisted?.masterVolume ?? config?.defaultSettings?.masterVolume ?? 1.0,
+      isMuted: persisted?.isMuted ?? config?.defaultSettings?.isMuted ?? false,
+      sfxVolume: persisted?.sfxVolume ?? config?.defaultSettings?.sfxVolume ?? 1.0,
     };
 
     if (config?.audioContext) {
@@ -104,11 +105,14 @@ export class AudioController {
   }
 
   private loadPersistedSettings(): Partial<AudioSettings> | null {
-    if (this.disableStorage || typeof window === 'undefined' || !window.localStorage) {
+    if (this.disableStorage) {
       return null;
     }
     try {
-      const raw = window.localStorage.getItem(this.storageKey);
+      if (typeof window === 'undefined') return null;
+      const storage = window.localStorage;
+      if (!storage) return null;
+      const raw = storage.getItem(this.storageKey);
       if (!raw) return null;
       return JSON.parse(raw);
     } catch {
@@ -117,11 +121,14 @@ export class AudioController {
   }
 
   private persistSettings(): void {
-    if (this.disableStorage || typeof window === 'undefined' || !window.localStorage) {
+    if (this.disableStorage) {
       return;
     }
     try {
-      window.localStorage.setItem(this.storageKey, JSON.stringify(this.settings));
+      if (typeof window === 'undefined') return;
+      const storage = window.localStorage;
+      if (!storage) return;
+      storage.setItem(this.storageKey, JSON.stringify(this.settings));
     } catch {
       // Ignore write errors (e.g., storage quota or private browsing mode)
     }
@@ -132,6 +139,17 @@ export class AudioController {
    * [Synthesizer / Source] -> [sfxGain] -> [masterGain] -> [ctx.destination]
    */
   private initContext(existingCtx?: AudioContext): AudioContext | null {
+    // If context is closed, handle clean teardown / recreation
+    if (this.ctx && this.ctx.state === 'closed') {
+      if (!this.isContextOwned) {
+        // Borrowed context was closed externally; fail gracefully
+        return null;
+      }
+      this.ctx = null;
+      this.masterGain = null;
+      this.sfxGain = null;
+    }
+
     if (this.ctx && this.masterGain && this.sfxGain) {
       return this.ctx;
     }
@@ -139,16 +157,18 @@ export class AudioController {
     try {
       if (existingCtx) {
         this.ctx = existingCtx;
+        this.isContextOwned = false;
       } else if (typeof window !== 'undefined') {
         const AudioCtxClass =
           window.AudioContext ||
           (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
         if (AudioCtxClass) {
           this.ctx = new AudioCtxClass();
+          this.isContextOwned = true;
         }
       }
 
-      if (!this.ctx) return null;
+      if (!this.ctx || this.ctx.state === 'closed') return null;
 
       // Master Gain
       this.masterGain = this.ctx.createGain();
@@ -202,7 +222,7 @@ export class AudioController {
     this.settings.masterVolume = clamped;
     this.persistSettings();
 
-    if (this.masterGain && this.ctx) {
+    if (this.masterGain && this.ctx && this.ctx.state !== 'closed') {
       const effectiveGain = this.settings.isMuted ? 0 : clamped;
       this.masterGain.gain.setValueAtTime(effectiveGain, this.ctx.currentTime);
     }
@@ -217,7 +237,7 @@ export class AudioController {
     this.settings.sfxVolume = clamped;
     this.persistSettings();
 
-    if (this.sfxGain && this.ctx) {
+    if (this.sfxGain && this.ctx && this.ctx.state !== 'closed') {
       this.sfxGain.gain.setValueAtTime(clamped, this.ctx.currentTime);
     }
   }
@@ -230,7 +250,7 @@ export class AudioController {
     this.settings.isMuted = isMuted;
     this.persistSettings();
 
-    if (this.masterGain && this.ctx) {
+    if (this.masterGain && this.ctx && this.ctx.state !== 'closed') {
       const effectiveGain = isMuted ? 0 : this.settings.masterVolume;
       this.masterGain.gain.setValueAtTime(effectiveGain, this.ctx.currentTime);
     }
@@ -255,7 +275,7 @@ export class AudioController {
     }
 
     const ctx = this.initContext();
-    if (!ctx) return false;
+    if (!ctx || ctx.state === 'closed') return false;
 
     // If context was suspended by autoplay policy, attempt quick resume
     if (ctx.state === 'suspended') {
@@ -279,9 +299,24 @@ export class AudioController {
 
   /**
    * Disposes of the AudioContext and gain nodes, freeing system audio resources.
+   * Only closes the AudioContext if it was created internally by this controller.
    */
   public async dispose(): Promise<void> {
-    if (this.ctx && this.ctx.state !== 'closed') {
+    if (this.sfxGain) {
+      try {
+        this.sfxGain.disconnect();
+      } catch {
+        // Ignore disconnect errors
+      }
+    }
+    if (this.masterGain) {
+      try {
+        this.masterGain.disconnect();
+      } catch {
+        // Ignore disconnect errors
+      }
+    }
+    if (this.isContextOwned && this.ctx && this.ctx.state !== 'closed') {
       try {
         await this.ctx.close();
       } catch {

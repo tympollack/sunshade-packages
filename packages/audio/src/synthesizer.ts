@@ -18,6 +18,15 @@ function getNoiseBuffer(ctx: AudioContext): AudioBuffer {
   return buffer;
 }
 
+function createNoiseSource(ctx: AudioContext, detune?: number, startTime?: number): AudioBufferSourceNode {
+  const noise = ctx.createBufferSource();
+  noise.buffer = getNoiseBuffer(ctx);
+  if (detune && 'detune' in noise && noise.detune) {
+    noise.detune.setValueAtTime(detune, startTime ?? ctx.currentTime);
+  }
+  return noise;
+}
+
 /**
  * Synthesize and play a sound procedurally using Web Audio API nodes.
  * Latency is instantaneous (<5ms) as waveforms and noise envelopes are calculated in real time.
@@ -126,8 +135,7 @@ export function synthesizeSound(
 
     case 'ui.modal_slide': {
       // Soft airy whoosh slide: filtered noise + low sine undertone
-      const noise = ctx.createBufferSource();
-      noise.buffer = getNoiseBuffer(ctx);
+      const noise = createNoiseSource(ctx, detune, now);
 
       const filter = ctx.createBiquadFilter();
       filter.type = 'bandpass';
@@ -172,8 +180,7 @@ export function synthesizeSound(
     case 'impact.puck_bounce': {
       // Wooden bounce: sharp click transient + dual resonant wood body tones
       // 1. Strike transient
-      const noise = ctx.createBufferSource();
-      noise.buffer = getNoiseBuffer(ctx);
+      const noise = createNoiseSource(ctx, detune, now);
       const noiseFilter = ctx.createBiquadFilter();
       noiseFilter.type = 'bandpass';
       noiseFilter.frequency.setValueAtTime(1400 * rate, now);
@@ -219,8 +226,7 @@ export function synthesizeSound(
       oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
 
       // Low muffled cloth noise
-      const noise = ctx.createBufferSource();
-      noise.buffer = getNoiseBuffer(ctx);
+      const noise = createNoiseSource(ctx, detune, now);
       const noiseFilter = ctx.createBiquadFilter();
       noiseFilter.type = 'lowpass';
       noiseFilter.frequency.setValueAtTime(320 * rate, now);
@@ -243,8 +249,7 @@ export function synthesizeSound(
 
     case 'impact.card_deal': {
       // Swift paper flick / card deal
-      const noise = ctx.createBufferSource();
-      noise.buffer = getNoiseBuffer(ctx);
+      const noise = createNoiseSource(ctx, detune, now);
       const filter = ctx.createBiquadFilter();
       filter.type = 'highpass';
       filter.frequency.setValueAtTime(2600 * rate, now);
@@ -266,8 +271,7 @@ export function synthesizeSound(
       const offsets = [0, 0.025, 0.055, 0.085];
       offsets.forEach((offset, idx) => {
         const t = now + offset;
-        const noise = ctx.createBufferSource();
-        noise.buffer = getNoiseBuffer(ctx);
+        const noise = createNoiseSource(ctx, detune, t);
         const filter = ctx.createBiquadFilter();
         filter.type = 'bandpass';
         filter.frequency.setValueAtTime((2400 + idx * 250) * rate, t);
@@ -315,8 +319,7 @@ export function synthesizeSound(
       osc2.stop(now + 0.2);
 
       // Impact transient
-      const noise = ctx.createBufferSource();
-      noise.buffer = getNoiseBuffer(ctx);
+      const noise = createNoiseSource(ctx, detune, now);
       const filter = ctx.createBiquadFilter();
       filter.type = 'bandpass';
       filter.frequency.setValueAtTime(3400 * rate, now);

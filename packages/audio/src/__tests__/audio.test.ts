@@ -52,6 +52,7 @@ class MockBiquadFilterNode extends MockAudioNode {
 
 class MockBufferSourceNode extends MockAudioNode {
   buffer: unknown = null;
+  detune = new MockAudioParam(0);
   start = vi.fn();
   stop = vi.fn();
 }
@@ -142,6 +143,52 @@ describe('@digitalcanopy/audio - AudioController & Soundscapes', () => {
       expect(settings.isMuted).toBe(true);
     });
 
+    it('prioritizes persisted settings over configuration defaultSettings', () => {
+      mockStorage['sunshade_audio_settings'] = JSON.stringify({
+        masterVolume: 0.35,
+        isMuted: true,
+        sfxVolume: 0.5,
+      });
+
+      const controller = new AudioController({
+        audioContext: mockCtx as unknown as AudioContext,
+        defaultSettings: {
+          masterVolume: 0.9,
+          isMuted: false,
+          sfxVolume: 1.0,
+        },
+      });
+      const settings = controller.getSettings();
+
+      expect(settings.masterVolume).toBe(0.35);
+      expect(settings.isMuted).toBe(true);
+      expect(settings.sfxVolume).toBe(0.5);
+    });
+
+    it('handles blocked localStorage throwing getters gracefully', () => {
+      // Emulate strict private browsing or iframe security restrictions where window.localStorage getter throws
+      vi.stubGlobal('window', {
+        get localStorage() {
+          throw new Error('Access denied');
+        },
+        AudioContext: vi.fn(() => mockCtx),
+      });
+
+      const controller = new AudioController({
+        audioContext: mockCtx as unknown as AudioContext,
+        defaultSettings: {
+          masterVolume: 0.8,
+        },
+      });
+
+      expect(controller.getSettings().masterVolume).toBe(0.8);
+      // Changing settings should not throw either
+      expect(() => controller.setMasterVolume(0.5)).not.toThrow();
+      expect(() => controller.setMuted(true)).not.toThrow();
+      expect(controller.getSettings().masterVolume).toBe(0.5);
+      expect(controller.getSettings().isMuted).toBe(true);
+    });
+
     it('persists settings to localStorage upon mutation', () => {
       const controller = new AudioController({
         audioContext: mockCtx as unknown as AudioContext,
@@ -223,16 +270,29 @@ describe('@digitalcanopy/audio - AudioController & Soundscapes', () => {
   });
 
   describe('Latency & Sub-20ms Guarantee', () => {
-    it('executes and schedules sound generation within 20ms latency requirement', async () => {
+    it('executes and schedules sound generation within 20ms latency requirement for oscillators', async () => {
       const controller = new AudioController({
         audioContext: mockCtx as unknown as AudioContext,
       });
 
-      // Pre-warm context to avoid Node/V8 cold-start compilation overhead
       await controller.play('ui.button_hover');
 
       const start = performance.now();
       const played = await controller.play('ui.click');
+      const elapsed = performance.now() - start;
+
+      expect(played).toBe(true);
+      expect(elapsed).toBeLessThan(20);
+    });
+
+    it('executes noise-based sound generation within 20ms on first trigger', async () => {
+      const controller = new AudioController({
+        audioContext: mockCtx as unknown as AudioContext,
+      });
+
+      // Cold first playback of noise-based sound (including 1-second buffer allocation)
+      const start = performance.now();
+      const played = await controller.play('impact.card_deal');
       const elapsed = performance.now() - start;
 
       expect(played).toBe(true);
@@ -266,19 +326,26 @@ describe('@digitalcanopy/audio - AudioController & Soundscapes', () => {
       expect(SOUND_DEFINITIONS[soundKey].key).toBe(soundKey);
     });
 
-    it('applies custom volume, playbackRate, and detune options', async () => {
+    it('applies custom volume, playbackRate, and detune options across oscillators and noise sources', async () => {
       const controller = new AudioController({
         audioContext: mockCtx as unknown as AudioContext,
       });
 
-      const played = await controller.play('ui.click', {
+      // Test oscillator sound with detune
+      const playedOsc = await controller.play('ui.click', {
         volume: 0.5,
         playbackRate: 1.2,
         detune: 50,
       });
-
-      expect(played).toBe(true);
+      expect(playedOsc).toBe(true);
       expect(mockCtx.createOscillator).toHaveBeenCalled();
+
+      // Test noise-based sound with detune
+      const playedNoise = await controller.play('impact.card_deal', {
+        detune: 200,
+      });
+      expect(playedNoise).toBe(true);
+      expect(mockCtx.createBufferSource).toHaveBeenCalled();
     });
   });
 
@@ -300,7 +367,7 @@ describe('@digitalcanopy/audio - AudioController & Soundscapes', () => {
     });
   });
 
-  describe('AudioContext Lifecycle & Autoplay Handling', () => {
+  describe('AudioContext Lifecycle & Ownership', () => {
     it('unlocks and resumes suspended AudioContext on unlock()', async () => {
       mockCtx.state = 'suspended';
       const controller = new AudioController({
@@ -313,13 +380,35 @@ describe('@digitalcanopy/audio - AudioController & Soundscapes', () => {
       expect(mockCtx.state).toBe('running');
     });
 
-    it('disposes and closes AudioContext cleanly on dispose()', async () => {
+    it('does NOT close a borrowed/injected AudioContext on dispose()', async () => {
+      const externalCtx = new MockAudioContext();
       const controller = new AudioController({
-        audioContext: mockCtx as unknown as AudioContext,
+        audioContext: externalCtx as unknown as AudioContext,
       });
 
       await controller.dispose();
+      // External context must remain unclosed
+      expect(externalCtx.close).not.toHaveBeenCalled();
+    });
+
+    it('closes an owned AudioContext on dispose()', async () => {
+      const controller = new AudioController();
+      // First play creates the owned context
+      await controller.play('ui.click');
+
+      await controller.dispose();
       expect(mockCtx.close).toHaveBeenCalled();
+    });
+
+    it('returns false and fails gracefully when borrowed AudioContext is closed externally', async () => {
+      const externalCtx = new MockAudioContext();
+      const controller = new AudioController({
+        audioContext: externalCtx as unknown as AudioContext,
+      });
+
+      externalCtx.state = 'closed';
+      const played = await controller.play('ui.click');
+      expect(played).toBe(false);
     });
   });
 });
