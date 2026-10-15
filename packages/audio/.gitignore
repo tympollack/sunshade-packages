@@ -1,0 +1,12 @@
+# Prevent binary asset commits in application & package repositories
+*.png
+*.svg
+*.wav
+*.ogg
+*.mp3
+*.jpg
+*.jpeg
+dist/
+raw/
+.turbo/
+node_modules/
