@@ -32,12 +32,7 @@ export {
   shortenUrl,
 } from './client';
 
-// React Integration
-export {
-  SafeAnchor,
-  TrustBadge,
-  useTrackedLink,
-} from './react';
+// React Type Exports (Runtime components exported via '@digitalcanopy/links/react')
 export type {
   SafeAnchorProps,
   TrustBadgeProps,

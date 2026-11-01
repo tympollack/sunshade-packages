@@ -41,13 +41,29 @@ describe('Privacy Sanitizer (sanitizeUrl & hasSurveillanceTokens)', () => {
     expect(cleaned).toBe('https://sunshade.icu/docs#installation-guide');
   });
 
-  it('sanitizes relative URLs safely', () => {
+  it('sanitizes relative URLs safely while preserving path traversals', () => {
     const relative = '/dashboard/overview?fbclid=strip_me&tab=analytics#summary';
     const cleaned = sanitizeUrl(relative);
 
     expect(cleaned).toBe('/dashboard/overview?tab=analytics#summary');
     expect(hasSurveillanceTokens(relative)).toBe(true);
     expect(hasSurveillanceTokens(cleaned)).toBe(false);
+
+    // Parent-relative traversals
+    expect(sanitizeUrl('../invite?gclid=bad&ref=sidebar')).toBe('../invite?ref=sidebar');
+    expect(sanitizeUrl('../../settings?fbclid=123')).toBe('../../settings');
+  });
+
+  it('neutralizes dangerous executable URL schemes', () => {
+    expect(sanitizeUrl('javascript:alert(1)')).toBe('about:blank');
+    expect(sanitizeUrl('JAVASCRIPT:void(0)')).toBe('about:blank');
+    expect(sanitizeUrl('vbscript:msgbox(1)')).toBe('about:blank');
+    expect(sanitizeUrl('data:text/html,<script>alert(1)</script>')).toBe('about:blank');
+  });
+
+  it('preserves protocol-relative external URLs', () => {
+    const protoRelative = '//other.example/page?fbclid=bad&ref=shared#section';
+    expect(sanitizeUrl(protoRelative)).toBe('//other.example/page?ref=shared#section');
   });
 
   it('handles relative paths without leading slash', () => {

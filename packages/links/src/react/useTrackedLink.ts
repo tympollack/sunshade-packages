@@ -39,7 +39,9 @@ export function useTrackedLink(
   const sanitizedDestination = sanitizeUrl(destinationUrl);
 
   const [href, setHref] = useState<string>(sanitizedDestination);
-  const [isLoading, setIsLoading] = useState<boolean>(Boolean(enabled && sanitizedDestination));
+  const [isLoading, setIsLoading] = useState<boolean>(
+    Boolean((enabled || autoResolveTrust) && destinationUrl)
+  );
   const [isShortened, setIsShortened] = useState<boolean>(false);
   const [trustScore, setTrustScore] = useState<number | undefined>(undefined);
   const [trustReport, setTrustReport] = useState<TrustScoreReport | undefined>(undefined);
@@ -49,7 +51,15 @@ export function useTrackedLink(
   const activeRequestIdRef = useRef<number>(0);
 
   const executeTrackedLink = useCallback(async () => {
-    if (!enabled || !destinationUrl) {
+    if (!destinationUrl) {
+      setHref('');
+      setIsLoading(false);
+      setIsShortened(false);
+      setError(null);
+      return;
+    }
+
+    if (!enabled && !autoResolveTrust) {
       setHref(sanitizeUrl(destinationUrl));
       setIsLoading(false);
       setIsShortened(false);
@@ -61,42 +71,83 @@ export function useTrackedLink(
     setIsLoading(true);
     setError(null);
 
-    try {
-      const shortLinkPromise = client.shortenUrl({
-        destination: destinationUrl,
-        channel,
-        campaign,
-        tenantId,
-      });
+    // 1. Run shortening if enabled
+    const shortPromise = enabled
+      ? client.shortenUrl({
+          destination: destinationUrl,
+          channel,
+          campaign,
+          tenantId,
+        })
+      : Promise.resolve(null);
 
-      const trustPromise = autoResolveTrust
-        ? client.resolveTrustScore(destinationUrl)
-        : Promise.resolve(undefined);
+    // 2. Run trust resolution if requested
+    const trustPromise = autoResolveTrust
+      ? client.resolveTrustScore(destinationUrl)
+      : Promise.resolve(null);
 
-      const [shortResult, resolvedTrust] = await Promise.all([
-        shortLinkPromise,
-        trustPromise,
-      ]);
+    const [shortResultSettled, trustResultSettled] = await Promise.allSettled([
+      shortPromise,
+      trustPromise,
+    ]);
 
-      if (isMountedRef.current && currentRequestId === activeRequestIdRef.current) {
-        setHref(shortResult.shortUrl);
-        setIsShortened(shortResult.shortUrl !== sanitizedDestination);
-        setTrustScore(shortResult.trustScore ?? resolvedTrust?.score);
-        if (resolvedTrust) {
-          setTrustReport(resolvedTrust);
-        }
-        setIsLoading(false);
-      }
-    } catch (err) {
-      if (isMountedRef.current && currentRequestId === activeRequestIdRef.current) {
-        // Fallback gracefully to sanitized destination on failure
-        setHref(sanitizedDestination);
-        setIsShortened(false);
-        setError(err instanceof Error ? err : new Error(String(err)));
-        setIsLoading(false);
-      }
+    if (!isMountedRef.current || currentRequestId !== activeRequestIdRef.current) {
+      return;
     }
-  }, [destinationUrl, enabled, channel, campaign, tenantId, autoResolveTrust, client, sanitizedDestination]);
+
+    let finalHref = sanitizedDestination;
+    let finalIsShortened = false;
+    let finalTrustScore: number | undefined = undefined;
+    let finalTrustReport: TrustScoreReport | undefined = undefined;
+    let caughtError: Error | null = null;
+
+    // Handle shortener outcome
+    if (shortResultSettled.status === 'fulfilled' && shortResultSettled.value) {
+      finalHref = shortResultSettled.value.shortUrl;
+      finalIsShortened = shortResultSettled.value.shortUrl !== sanitizedDestination;
+      if (typeof shortResultSettled.value.trustScore === 'number') {
+        finalTrustScore = shortResultSettled.value.trustScore;
+      }
+    } else if (shortResultSettled.status === 'rejected') {
+      finalHref = sanitizedDestination;
+      finalIsShortened = false;
+      caughtError =
+        shortResultSettled.reason instanceof Error
+          ? shortResultSettled.reason
+          : new Error(String(shortResultSettled.reason));
+    }
+
+    // Handle trust resolution outcome independently
+    if (trustResultSettled.status === 'fulfilled' && trustResultSettled.value) {
+      finalTrustReport = trustResultSettled.value;
+      if (finalTrustScore === undefined) {
+        finalTrustScore = trustResultSettled.value.score;
+      }
+    } else if (trustResultSettled.status === 'rejected' && !caughtError) {
+      caughtError =
+        trustResultSettled.reason instanceof Error
+          ? trustResultSettled.reason
+          : new Error(String(trustResultSettled.reason));
+    }
+
+    setHref(finalHref);
+    setIsShortened(finalIsShortened);
+    setTrustScore(finalTrustScore);
+    if (finalTrustReport) {
+      setTrustReport(finalTrustReport);
+    }
+    setError(caughtError);
+    setIsLoading(false);
+  }, [
+    destinationUrl,
+    enabled,
+    channel,
+    campaign,
+    tenantId,
+    autoResolveTrust,
+    client,
+    sanitizedDestination,
+  ]);
 
   useEffect(() => {
     isMountedRef.current = true;

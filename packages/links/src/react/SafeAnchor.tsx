@@ -39,16 +39,19 @@ export const SafeAnchor: React.FC<SafeAnchorProps> = ({
 }) => {
   const isExternal =
     typeof href === 'string' &&
-    (href.startsWith('http://') || href.startsWith('https://'));
+    (href.startsWith('http://') ||
+      href.startsWith('https://') ||
+      href.startsWith('//'));
 
-  // If telemetry is active, useTrackedLink resolves the shortened link
+  // Tracked link hook handles shortening (when telemetry is true)
+  // AND handles trust resolution (when resolveTrust is true)
   const tracked = useTrackedLink(href, {
     enabled: telemetry && isExternal,
+    autoResolveTrust: resolveTrust && isExternal && explicitTrustScore === undefined,
     channel,
     campaign,
     tenantId,
     client,
-    autoResolveTrust: resolveTrust,
   });
 
   const finalHref = telemetry ? tracked.href : sanitizeUrl(href);

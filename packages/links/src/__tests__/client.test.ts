@@ -60,6 +60,23 @@ describe('LinksClient SDK', () => {
     expect(result.trustScore).toBe(95);
   });
 
+  it('rejects transmitting apiKey over plaintext HTTP transport', () => {
+    expect(() => {
+      new LinksClient({
+        baseUrl: 'http://insecure-api.sunshade.icu',
+        apiKey: 'secret_token_123',
+      });
+    }).toThrow(/Insecure transport: apiKey cannot be transmitted over plaintext HTTP/);
+
+    // Allows http on localhost
+    expect(() => {
+      new LinksClient({
+        baseUrl: 'http://localhost:3000',
+        apiKey: 'secret_token_123',
+      });
+    }).not.toThrow();
+  });
+
   it('gracefully falls back to sanitized destination URL on network failure', async () => {
     mockFetch.mockRejectedValueOnce(new Error('Network offline'));
 
@@ -131,6 +148,22 @@ describe('LinksClient SDK', () => {
     expect(report.pillars.provenance).toBe(35);
     expect(report.pillars.hygiene).toBe(25);
     expect(report.pillars.privacy).toBe(20);
+  });
+
+  it('falls back when audit response omits valid score data', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({}), // Missing score
+    });
+
+    const client = new LinksClient({
+      fetch: mockFetch as unknown as typeof fetch,
+      enableFallback: true,
+    });
+
+    const report = await client.resolveTrustScore('https://clean-site.org/page');
+    expect(report.score).toBe(75);
+    expect(report.status).toBe('warning');
   });
 
   it('computes deterministic local fallback when trust auditor is unreachable', async () => {

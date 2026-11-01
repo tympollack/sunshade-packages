@@ -26,8 +26,22 @@ export class LinksClient {
   private timeoutMs: number;
 
   constructor(config: ClientConfig = {}) {
-    this.baseUrl = (config.baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, '');
+    const rawBase = (config.baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, '');
     this.apiKey = config.apiKey;
+
+    // Security check: Never send credentials over plaintext HTTP in production
+    if (
+      this.apiKey &&
+      rawBase.startsWith('http://') &&
+      !rawBase.includes('localhost') &&
+      !rawBase.includes('127.0.0.1')
+    ) {
+      throw new Error(
+        'Insecure transport: apiKey cannot be transmitted over plaintext HTTP (use HTTPS or localhost).'
+      );
+    }
+
+    this.baseUrl = rawBase;
     this.tenantId = config.tenantId;
     this.customFetch = config.fetch || globalThis.fetch.bind(globalThis);
     this.enableFallback = config.enableFallback ?? true;
@@ -78,8 +92,6 @@ export class LinksClient {
         signal: controller.signal,
       });
 
-      clearTimeout(timeout);
-
       if (!response.ok) {
         throw new Error(`Links API error: ${response.status} ${response.statusText}`);
       }
@@ -101,8 +113,6 @@ export class LinksClient {
         createdAt: data.created_at || data.createdAt || new Date().toISOString(),
       };
     } catch (err) {
-      clearTimeout(timeout);
-
       if (!this.enableFallback) {
         throw err;
       }
@@ -119,6 +129,8 @@ export class LinksClient {
         trustScore: undefined,
         createdAt: new Date().toISOString(),
       };
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
@@ -130,7 +142,11 @@ export class LinksClient {
       throw new Error('URL or slug is required');
     }
 
-    const isUrl = urlOrSlug.startsWith('http://') || urlOrSlug.startsWith('https://');
+    const isUrl =
+      urlOrSlug.startsWith('http://') ||
+      urlOrSlug.startsWith('https://') ||
+      urlOrSlug.startsWith('//');
+
     const endpoint = isUrl
       ? `${this.baseUrl}/api/v1/trust?url=${encodeURIComponent(urlOrSlug)}`
       : `${this.baseUrl}/api/v1/trust/${encodeURIComponent(urlOrSlug)}`;
@@ -155,14 +171,19 @@ export class LinksClient {
         signal: controller.signal,
       });
 
-      clearTimeout(timeout);
-
       if (!response.ok) {
         throw new Error(`Trust API error: ${response.status} ${response.statusText}`);
       }
 
       const data = await response.json();
-      const score: number = data.score ?? data.trust_score ?? 100;
+      const rawScore = data.score ?? data.trust_score;
+
+      // Validate that the remote response actually provided a score
+      if (typeof rawScore !== 'number' || isNaN(rawScore)) {
+        throw new Error('Invalid audit response: missing or unparseable trust score');
+      }
+
+      const score: number = Math.max(0, Math.min(100, rawScore));
 
       const status: TrustTier =
         score >= 85 ? 'trusted' : score >= 60 ? 'warning' : 'danger';
@@ -182,7 +203,7 @@ export class LinksClient {
           redirect_count: data.redirect_count ?? 0,
           reputation_tier: tier,
           is_flagged: score < 60,
-          ssl_valid: urlOrSlug.startsWith('https://'),
+          ssl_valid: urlOrSlug.startsWith('https://') || urlOrSlug.startsWith('//'),
         },
         pillars: data.pillars || {
           provenance: Math.round(score * 0.35),
@@ -190,19 +211,20 @@ export class LinksClient {
           privacy: Math.round(score * 0.2),
           networkDecay: Math.round(score * 0.2),
         },
-        lastHygieneCheck: data.last_hygiene_check || data.lastHygieneCheck || new Date().toISOString(),
+        lastHygieneCheck:
+          data.last_hygiene_check || data.lastHygieneCheck || new Date().toISOString(),
         did: data.did,
         recommendation: data.recommendation,
       };
     } catch (err) {
-      clearTimeout(timeout);
-
       if (!this.enableFallback) {
         throw err;
       }
 
       // Offline / Local Deterministic Trust Evaluation Fallback
       return this.computeLocalTrustScore(urlOrSlug);
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
@@ -217,7 +239,7 @@ export class LinksClient {
    * Deterministic client-side evaluation fallback when the remote trust auditor is unreachable.
    */
   private computeLocalTrustScore(urlOrSlug: string): TrustScoreReport {
-    const isHttps = urlOrSlug.startsWith('https://');
+    const isHttps = urlOrSlug.startsWith('https://') || urlOrSlug.startsWith('//');
     const hasTrackers = hasSurveillanceTokens(urlOrSlug);
 
     // Provenance (Pillar 1: 0-35)

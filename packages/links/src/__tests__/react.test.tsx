@@ -55,7 +55,7 @@ describe('React Integration (useTrackedLink, SafeAnchor, TrustBadge)', () => {
       expect(result.current.error).toBeNull();
     });
 
-    it('returns sanitized raw destination immediately when enabled is false', () => {
+    it('returns sanitized raw destination immediately when enabled is false and no trust lookup', () => {
       const { result } = renderHook(() =>
         useTrackedLink('https://sunshade.icu/page?fbclid=strip_me&doc=2', {
           client,
@@ -67,6 +67,71 @@ describe('React Integration (useTrackedLink, SafeAnchor, TrustBadge)', () => {
       expect(result.current.isShortened).toBe(false);
       expect(result.current.href).toBe('https://sunshade.icu/page?doc=2');
       expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('resolves trust score when autoResolveTrust is true even if shortening enabled is false', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          url: 'https://sunshade.icu/post',
+          score: 88,
+        }),
+      });
+
+      const { result } = renderHook(() =>
+        useTrackedLink('https://sunshade.icu/post', {
+          client,
+          enabled: false,
+          autoResolveTrust: true,
+        })
+      );
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      expect(result.current.isShortened).toBe(false);
+      expect(result.current.href).toBe('https://sunshade.icu/post');
+      expect(result.current.trustScore).toBe(88);
+      expect(result.current.trustReport?.score).toBe(88);
+    });
+
+    it('retains successful short link even if independent trust resolution rejects', async () => {
+      // Shortener succeeds
+      mockFetch.mockImplementation(async (url: string) => {
+        if (url.includes('/api/v1/links')) {
+          return {
+            ok: true,
+            json: async () => ({
+              short_url: 'https://links.sunshade.icu/success/direct',
+              trust_score: 90,
+            }),
+          };
+        }
+        // Trust API fails
+        throw new Error('Audit engine 503');
+      });
+
+      const clientNoFallback = new LinksClient({
+        fetch: mockFetch as unknown as typeof fetch,
+        enableFallback: false,
+      });
+
+      const { result } = renderHook(() =>
+        useTrackedLink('https://sunshade.icu/article', {
+          client: clientNoFallback,
+          enabled: true,
+          autoResolveTrust: true,
+        })
+      );
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      // Retained short link!
+      expect(result.current.href).toBe('https://links.sunshade.icu/success/direct');
+      expect(result.current.isShortened).toBe(true);
     });
 
     it('falls back gracefully on network failure without breaking the link', async () => {
@@ -101,6 +166,19 @@ describe('React Integration (useTrackedLink, SafeAnchor, TrustBadge)', () => {
       expect(anchor.getAttribute('target')).toBe('_blank');
       expect(anchor.getAttribute('rel')).toBe('noopener noreferrer');
       expect(anchor.getAttribute('href')).toBe('https://external-domain.com/post');
+    });
+
+    it('handles protocol-relative URLs as external links', () => {
+      render(
+        <SafeAnchor href="//cdn.external.com/asset" trustScore={85}>
+          CDN Asset
+        </SafeAnchor>
+      );
+
+      const anchor = screen.getByRole('link', { name: /CDN Asset/i });
+      expect(anchor.getAttribute('target')).toBe('_blank');
+      expect(anchor.getAttribute('rel')).toBe('noopener noreferrer');
+      expect(screen.getByTestId('trust-badge')).toBeDefined();
     });
 
     it('displays miniature TrustBadge alongside external links when showBadge is true', () => {

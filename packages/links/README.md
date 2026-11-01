@@ -7,7 +7,7 @@ Provides lightweight URL shortening, privacy surveillance parameter stripping, r
 ## Features
 
 - **2-Line URL Shortening**: Easily generate tracked shortlinks with channel-based routing (`bsky`, `linkedin`, `x`, `direct`, `qr`).
-- **Privacy Parameter Sanitization**: Purges invasive surveillance parameters (`fbclid`, `gclid`, `msclkid`, `ttclid`, etc.) while retaining clean UTM and attribution parameters.
+- **Privacy Parameter Sanitization**: Purges invasive surveillance parameters (`fbclid`, `gclid`, `msclkid`, `ttclid`, etc.) and dangerous schemes while retaining clean UTM and attribution parameters.
 - **4-Pillar Trust Score Engine**: Evaluates Provenance (DID verification), Target Hygiene (SSL, redirect chains), Privacy Footprint, and Network Corroboration.
 - **React Hooks & SafeAnchor**: `useTrackedLink` hook and `<SafeAnchor>` component that automatically renders a miniature Trust Badge next to external links.
 - **Zero External Dependencies**: Beyond browser/Node `fetch` and optional `react` peer dependency.
@@ -21,7 +21,7 @@ npm install @digitalcanopy/links
 
 ## Quick Start
 
-### 1. Shorten a URL
+### 1. Shorten a URL (Core SDK)
 
 ```typescript
 import { shortenUrl } from '@digitalcanopy/links';
@@ -60,7 +60,7 @@ const cleanUrl = sanitizeUrl('https://site.com/?fbclid=123&utm_source=newsletter
 ### 4. React Integration
 
 ```tsx
-import { SafeAnchor, useTrackedLink } from '@digitalcanopy/links';
+import { SafeAnchor, useTrackedLink } from '@digitalcanopy/links/react';
 
 // Component that automatically shortens and renders a miniature Trust Badge
 export function CommunityLink() {

@@ -23,28 +23,26 @@ export const INVASIVE_TRACKING_PARAMS = new Set([
   's_kwcid',
 ]);
 
+const DANGEROUS_PROTOCOLS = /^(javascript|vbscript|data):/i;
+
 /**
  * Checks whether a URL contains invasive surveillance tokens.
  */
 export function hasSurveillanceTokens(rawUrl: string): boolean {
   if (!rawUrl || typeof rawUrl !== 'string') return false;
-  try {
-    const dummyBase = 'https://links.sunshade.icu';
-    const parsed = new URL(rawUrl, dummyBase);
-    for (const key of parsed.searchParams.keys()) {
-      if (INVASIVE_TRACKING_PARAMS.has(key.toLowerCase())) {
-        return true;
-      }
-    }
-  } catch {
-    // If URL parsing fails, perform regex check
-    const queryIdx = rawUrl.indexOf('?');
-    if (queryIdx !== -1) {
-      const queryString = rawUrl.slice(queryIdx + 1);
-      for (const param of INVASIVE_TRACKING_PARAMS) {
-        const regex = new RegExp(`(?:^|[&?])${param}=`, 'i');
-        if (regex.test(queryString)) return true;
-      }
+  const queryIdx = rawUrl.indexOf('?');
+  if (queryIdx === -1) return false;
+
+  const hashIdx = rawUrl.indexOf('#', queryIdx);
+  const queryString =
+    hashIdx !== -1
+      ? rawUrl.slice(queryIdx + 1, hashIdx)
+      : rawUrl.slice(queryIdx + 1);
+
+  const searchParams = new URLSearchParams(queryString);
+  for (const key of searchParams.keys()) {
+    if (INVASIVE_TRACKING_PARAMS.has(key.toLowerCase())) {
+      return true;
     }
   }
   return false;
@@ -52,6 +50,7 @@ export function hasSurveillanceTokens(rawUrl: string): boolean {
 
 /**
  * Strips known surveillance tokens and returns a sanitized clean URL.
+ * Neutralizes dangerous executable URL schemes (e.g. javascript:).
  */
 export function sanitizeUrl(rawUrl: string): string {
   if (!rawUrl || typeof rawUrl !== 'string') {
@@ -61,52 +60,44 @@ export function sanitizeUrl(rawUrl: string): string {
   const trimmed = rawUrl.trim();
   if (!trimmed) return '';
 
-  const isRelative =
-    trimmed.startsWith('/') ||
-    (!trimmed.startsWith('http://') &&
-      !trimmed.startsWith('https://') &&
-      !trimmed.includes('://'));
+  // Neutralize executable / script injection schemes
+  if (DANGEROUS_PROTOCOLS.test(trimmed)) {
+    return 'about:blank';
+  }
+
+  // Handle hash fragment
+  const hashIdx = trimmed.indexOf('#');
+  const hash = hashIdx !== -1 ? trimmed.slice(hashIdx) : '';
+  const withoutHash = hashIdx !== -1 ? trimmed.slice(0, hashIdx) : trimmed;
+
+  const queryIdx = withoutHash.indexOf('?');
+  const pathPart = queryIdx !== -1 ? withoutHash.slice(0, queryIdx) : withoutHash;
+  const queryPart = queryIdx !== -1 ? withoutHash.slice(queryIdx + 1) : '';
+
+  // If there are no query parameters, return path + hash directly
+  if (!queryPart) {
+    return `${pathPart}${hash}`;
+  }
 
   try {
-    const dummyBase = 'https://links.sunshade.icu';
-    const parsed = new URL(trimmed, dummyBase);
-
-    // Identify keys to strip
+    const searchParams = new URLSearchParams(queryPart);
     const keysToRemove: string[] = [];
-    for (const key of parsed.searchParams.keys()) {
+
+    for (const key of searchParams.keys()) {
       if (INVASIVE_TRACKING_PARAMS.has(key.toLowerCase())) {
         keysToRemove.push(key);
       }
     }
 
     for (const key of keysToRemove) {
-      parsed.searchParams.delete(key);
+      searchParams.delete(key);
     }
 
-    if (isRelative) {
-      const pathname = trimmed.startsWith('/')
-        ? parsed.pathname
-        : parsed.pathname.replace(/^\//, '');
-      const search = parsed.search;
-      const hash = parsed.hash;
-      return `${pathname}${search}${hash}`;
-    }
+    const cleanQuery = searchParams.toString();
+    const cleanSearch = cleanQuery ? `?${cleanQuery}` : '';
 
-    // Absolute URL handling
-    const hadNoPath =
-      !trimmed.split('?')[0].split('#')[0].replace(/^https?:\/\/[^/]+/, '') ||
-      trimmed.split('?')[0].split('#')[0].replace(/^https?:\/\/[^/]+/, '') === '';
-
-    let result = parsed.toString();
-
-    // If original URL didn't have path and query is now empty, remove trailing slash
-    if (hadNoPath && !parsed.search && !parsed.hash && result.endsWith('/')) {
-      result = result.slice(0, -1);
-    }
-
-    return result;
+    return `${pathPart}${cleanSearch}${hash}`;
   } catch {
-    // Fallback if URL constructor fails
     return trimmed;
   }
 }
