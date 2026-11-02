@@ -7,6 +7,11 @@ import {
   type UrgencyTier,
 } from './types';
 
+/** Notifications are unique per (source, id), not by id alone. */
+export function notificationKey(n: Pick<ActionableNotification, 'source' | 'id'>): string {
+  return `${n.source}:${n.id}`;
+}
+
 export function tierRank(tier: UrgencyTier): number {
   return URGENCY_TIERS.indexOf(tier);
 }
@@ -44,34 +49,43 @@ export function buildDigestRollup(
 }
 
 export function createTriageState(items: ActionableNotification[] = []): TriageState {
-  return { items: dedupe(items) };
+  return { items: dedupe(items), dismissed: [] };
 }
 
 function dedupe(items: readonly ActionableNotification[]): ActionableNotification[] {
   const map = new Map<string, ActionableNotification>();
-  for (const item of items) map.set(item.id, item);
+  for (const item of items) map.set(notificationKey(item), item);
   return [...map.values()];
 }
 
 export function triageReducer(state: TriageState, action: TriageAction): TriageState {
   switch (action.type) {
     case 'ingest': {
-      const existing = new Map(state.items.map((i) => [i.id, i]));
+      const dismissed = new Set(state.dismissed);
+      const existing = new Map(state.items.map((i) => [notificationKey(i), i]));
       for (const incoming of action.notifications) {
-        const prev = existing.get(incoming.id);
+        const key = notificationKey(incoming);
+        if (dismissed.has(key)) continue;
+        const prev = existing.get(key);
         // Never resurrect an already-read item as unread on re-ingest.
-        existing.set(incoming.id, prev?.read ? { ...incoming, read: true } : incoming);
+        existing.set(key, prev?.read ? { ...incoming, read: true } : incoming);
       }
-      return { items: [...existing.values()] };
+      return { ...state, items: [...existing.values()] };
     }
     case 'markRead':
       return {
-        items: state.items.map((i) => (i.id === action.id ? { ...i, read: true } : i)),
+        ...state,
+        items: state.items.map((i) => (notificationKey(i) === action.key ? { ...i, read: true } : i)),
       };
     case 'markAllRead':
-      return { items: state.items.map((i) => (i.read ? i : { ...i, read: true })) };
+      return { ...state, items: state.items.map((i) => (i.read ? i : { ...i, read: true })) };
     case 'dismiss':
-      return { items: state.items.filter((i) => i.id !== action.id) };
+      return {
+        items: state.items.filter((i) => notificationKey(i) !== action.key),
+        dismissed: state.dismissed.includes(action.key)
+          ? state.dismissed
+          : [...state.dismissed, action.key],
+      };
     case 'reset':
       return createTriageState(action.notifications ?? []);
     default:

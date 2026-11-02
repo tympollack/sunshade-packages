@@ -1,4 +1,4 @@
-import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { NotificationDigestCard, useNotificationDigest } from '../react';
 import { buildDigestRollup } from '../triage';
@@ -17,6 +17,27 @@ const n = (over: Partial<ActionableNotification>): ActionableNotification => ({
 beforeEach(() => window.localStorage.clear());
 
 describe('useNotificationDigest', () => {
+  it('clears isSummarizing when unread items are cleared mid-flight', async () => {
+    const summarizer = () => new Promise<string>(() => {});
+    const { result } = renderHook(() =>
+      useNotificationDigest({ initial: [n({ id: '1' })], summarizer })
+    );
+    await waitFor(() => expect(result.current.isSummarizing).toBe(true));
+    act(() => result.current.markAllRead());
+    await waitFor(() => expect(result.current.isSummarizing).toBe(false));
+  });
+
+  it('drops a stale summary when notification content changes', async () => {
+    const summarizer = async (items: readonly ActionableNotification[]) => items[0].title;
+    const { result } = renderHook(() =>
+      useNotificationDigest({ initial: [n({ id: '1', title: 'arriving' })], summarizer })
+    );
+    await waitFor(() => expect(result.current.digest.summary).toBe('arriving'));
+    act(() => result.current.ingest([n({ id: '1', title: 'canceled' })]));
+    expect(result.current.digest.summary).not.toBe('arriving');
+    await waitFor(() => expect(result.current.digest.summary).toBe('canceled'));
+  });
+
   it('manages state through actions', () => {
     const { result } = renderHook(() => useNotificationDigest({ initial: [n({ id: '1' })] }));
     expect(result.current.digest.unread).toBe(1);
@@ -28,6 +49,16 @@ describe('useNotificationDigest', () => {
 });
 
 describe('NotificationDigestCard', () => {
+  it('does not render unsafe action links', () => {
+    const digest = buildDigestRollup([
+      n({ id: '1', title: 'Bad', actionUrl: 'javascript:alert(1)', actionLabel: 'BadLink' }),
+      n({ id: '2', title: 'Good', actionUrl: 'https://example.com', actionLabel: 'GoodLink' }),
+    ]);
+    render(<NotificationDigestCard digest={digest} defaultOpen storageKey={null} />);
+    expect(screen.queryByText('BadLink')).toBeNull();
+    expect(screen.getByText('GoodLink')).toBeTruthy();
+  });
+
   it('shows badge, tier accent, and persists open state', () => {
     const digest = buildDigestRollup([n({ id: '1', tier: 'critical', title: 'Blocked' })]);
     const { unmount } = render(<NotificationDigestCard digest={digest} />);

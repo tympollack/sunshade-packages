@@ -11,9 +11,10 @@ export interface UseNotificationDigestOptions {
 export interface UseNotificationDigestResult {
   digest: DigestRollup;
   ingest: (notifications: ActionableNotification[]) => void;
-  markRead: (id: string) => void;
+  /** `key` is the composite `source:id` from `notificationKey()`. */
+  markRead: (key: string) => void;
   markAllRead: () => void;
-  dismiss: (id: string) => void;
+  dismiss: (key: string) => void;
   reset: (notifications?: ActionableNotification[]) => void;
   isSummarizing: boolean;
   summaryError: Error | null;
@@ -31,12 +32,20 @@ export function useNotificationDigest(
   summarizerRef.current = summarizer;
 
   const unreadItems = useMemo(() => state.items.filter((i) => !i.read), [state.items]);
-  const unreadKey = unreadItems.map((i) => i.id).sort().join('|');
+  // Content-sensitive key: re-summarize when an unread item's content changes, not just its id.
+  const unreadKey = JSON.stringify(
+    unreadItems
+      .map((i) => [i.source, i.id, i.tier, i.title, i.body ?? ''])
+      .sort((a, b) => (a.join('\u0000') < b.join('\u0000') ? -1 : 1))
+  );
 
   useEffect(() => {
+    // Drop any previous summary immediately so it never describes stale content.
+    setSummary(undefined);
     const run = summarizerRef.current;
     if (!run || unreadItems.length === 0) {
-      setSummary(undefined);
+      setIsSummarizing(false);
+      setSummaryError(null);
       return;
     }
     const controller = new AbortController();
@@ -63,9 +72,9 @@ export function useNotificationDigest(
   return {
     digest,
     ingest: useCallback((notifications) => dispatch({ type: 'ingest', notifications }), []),
-    markRead: useCallback((id) => dispatch({ type: 'markRead', id }), []),
+    markRead: useCallback((key) => dispatch({ type: 'markRead', key }), []),
     markAllRead: useCallback(() => dispatch({ type: 'markAllRead' }), []),
-    dismiss: useCallback((id) => dispatch({ type: 'dismiss', id }), []),
+    dismiss: useCallback((key) => dispatch({ type: 'dismiss', key }), []),
     reset: useCallback((notifications) => dispatch({ type: 'reset', notifications }), []),
     isSummarizing,
     summaryError,

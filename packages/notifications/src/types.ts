@@ -39,11 +39,17 @@ export type DigestSummarizer = (
 
 export interface TriageState {
   items: ActionableNotification[];
+  /** Keys (see `notificationKey`) of dismissed items; re-ingesting them is a no-op. */
+  dismissed: string[];
 }
 
+/**
+ * Actions address notifications by composite key (`source:id`), since IDs are
+ * only unique within a source. Use `notificationKey()` to build one.
+ */
 export type TriageAction =
   | { type: 'ingest'; notifications: ActionableNotification[] }
-  | { type: 'markRead'; id: string }
+  | { type: 'markRead'; key: string }
   | { type: 'markAllRead' }
-  | { type: 'dismiss'; id: string }
+  | { type: 'dismiss'; key: string }
   | { type: 'reset'; notifications?: ActionableNotification[] };

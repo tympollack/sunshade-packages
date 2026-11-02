@@ -1,6 +1,8 @@
 import * as Collapsible from '@radix-ui/react-collapsible';
 import { useCallback, useState, type ReactNode } from 'react';
+import { notificationKey } from '../triage';
 import type { ActionableNotification, DigestRollup, UrgencyTier } from '../types';
+import { isSafeActionUrl } from '../url';
 
 export const TIER_STYLES: Record<UrgencyTier, { rail: string; glyph: string; label: string }> = {
   critical: { rail: 'border-l-4 border-l-rose-500', glyph: '!', label: 'Critical' },
@@ -36,9 +38,10 @@ export interface NotificationDigestCardProps {
   /** localStorage key for persisted open state. Pass null to disable persistence. */
   storageKey?: string | null;
   className?: string;
-  onMarkRead?: (id: string) => void;
+  /** Receives the composite source:id key. */
+  onMarkRead?: (key: string) => void;
   onMarkAllRead?: () => void;
-  onDismiss?: (id: string) => void;
+  onDismiss?: (key: string) => void;
   /** Override rendering of a single row. */
   renderItem?: (item: ActionableNotification) => ReactNode;
   emptyState?: ReactNode;
@@ -106,10 +109,10 @@ export function NotificationDigestCard({
           <ul className="divide-y divide-slate-100">
             {digest.items.map((item) =>
               renderItem ? (
-                <li key={item.id}>{renderItem(item)}</li>
+                <li key={notificationKey(item)}>{renderItem(item)}</li>
               ) : (
                 <li
-                  key={item.id}
+                  key={notificationKey(item)}
                   data-tier={item.tier}
                   className={`${TIER_STYLES[item.tier].rail} flex items-start gap-2 px-4 py-2 ${
                     item.read ? 'opacity-60' : ''
@@ -119,14 +122,14 @@ export function NotificationDigestCard({
                   <div className="flex-1">
                     <p className="text-sm font-medium">{item.title}</p>
                     {item.body && <p className="text-xs text-slate-600">{item.body}</p>}
-                    {item.actionUrl && (
+                    {isSafeActionUrl(item.actionUrl) && (
                       <a href={item.actionUrl} className="text-xs text-sky-600 underline">
                         {item.actionLabel ?? 'Open'}
                       </a>
                     )}
                   </div>
                   {!item.read && onMarkRead && (
-                    <button type="button" className="text-xs" onClick={() => onMarkRead(item.id)}>
+                    <button type="button" className="text-xs" onClick={() => onMarkRead(notificationKey(item))}>
                       Mark read
                     </button>
                   )}
@@ -135,7 +138,7 @@ export function NotificationDigestCard({
                       type="button"
                       aria-label={`Dismiss ${item.title}`}
                       className="text-xs"
-                      onClick={() => onDismiss(item.id)}
+                      onClick={() => onDismiss(notificationKey(item))}
                     >
                       ✕
                     </button>
