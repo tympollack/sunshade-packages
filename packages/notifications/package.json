@@ -1,6 +1,6 @@
 {
   "name": "@digitalcanopy/notifications",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Universal notification triage state machine, AI digest contracts, and collapsible digest card shared across SunShade apps",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
