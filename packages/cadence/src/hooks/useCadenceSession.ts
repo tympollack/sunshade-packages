@@ -79,6 +79,16 @@ function extractConfigFromOptions(
   return merged;
 }
 
+function hasExplicitConfigFields(config: Partial<CadenceConfig>): boolean {
+  return (
+    config.unitLimit !== undefined ||
+    config.mode !== undefined ||
+    config.cooldownMinutes !== undefined ||
+    config.enabledCategories !== undefined ||
+    config.snoozeUnits !== undefined
+  );
+}
+
 /**
  * React consumer hook providing unit registration, chapter threshold status,
  * deterministic cooldown tracking, and local zero-knowledge persistence.
@@ -101,6 +111,7 @@ export function useCadenceSession(
   }, [persistEnabled, options?.storage, options?.storageKeyPrefix]);
 
   const explicitConfig = extractConfigFromOptions(options);
+  const hasExplicitConfig = hasExplicitConfigFields(explicitConfig);
 
   const [state, dispatch] = useReducer(
     cadenceReducer,
@@ -128,13 +139,7 @@ export function useCadenceSession(
   // Sync config updates if caller changes unitLimit, mode, cooldownMinutes, or enabledCategories
   const categoriesKey = explicitConfig.enabledCategories?.join(',') ?? '';
   useEffect(() => {
-    if (
-      explicitConfig.unitLimit !== undefined ||
-      explicitConfig.mode !== undefined ||
-      explicitConfig.cooldownMinutes !== undefined ||
-      explicitConfig.enabledCategories !== undefined ||
-      explicitConfig.snoozeUnits !== undefined
-    ) {
+    if (hasExplicitConfig) {
       dispatch({
         type: 'UPDATE_CONFIG',
         config: explicitConfig,
@@ -142,11 +147,27 @@ export function useCadenceSession(
       });
     }
   }, [
+    hasExplicitConfig,
     explicitConfig.unitLimit,
     explicitConfig.mode,
     explicitConfig.cooldownMinutes,
     explicitConfig.snoozeUnits,
     categoriesKey,
+  ]);
+
+  // Persist explicit config preferences locally when provided or changed
+  const stateCategoriesKey = state.config.enabledCategories.join(',');
+  useEffect(() => {
+    if (!storageAdapter || !hasExplicitConfig) return;
+    storageAdapter.saveConfig(state.config);
+  }, [
+    storageAdapter,
+    hasExplicitConfig,
+    state.config.unitLimit,
+    state.config.mode,
+    state.config.cooldownMinutes,
+    state.config.snoozeUnits,
+    stateCategoriesKey,
   ]);
 
   // Persist metrics snapshot locally on change
@@ -241,7 +262,11 @@ export function useCadenceSession(
     });
   }, [storageAdapter]);
 
-  const effectiveLimit = state.snoozedUntilUnit ?? state.config.unitLimit;
+  const effectiveLimit =
+    state.config.mode === 'soft_prompt'
+      ? (state.snoozedUntilUnit ?? state.config.unitLimit)
+      : state.config.unitLimit;
+
   const metrics = useMemo(() => selectSessionMetrics(state), [
     state.unitsConsumed,
     state.chapterIndex,

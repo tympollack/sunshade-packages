@@ -100,6 +100,9 @@ export function injectCozyChapterSlots<T>(
   return rows;
 }
 
+/** Alias for `injectCozyChapterSlots`. */
+export const injectCadenceChapterSlots = injectCozyChapterSlots;
+
 export interface CozyFeedChapterCardProps {
   /** Chapter row metadata produced by `injectCozyChapterSlots`. */
   chapter: CozyFeedChapterRow;
@@ -135,7 +138,12 @@ export function CozyFeedChapterCard({
   const [breakTaken, setBreakTaken] = useState(false);
   const [widgetCompleted, setWidgetCompleted] = useState(false);
 
-  const unitsDisplay = metrics?.unitsConsumed ?? chapter.totalUnitsConsumed;
+  const unitsDisplay = metrics
+    ? Math.max(
+        chapter.totalUnitsConsumed,
+        metrics.chapterIndex * chapter.unitsInChapter + metrics.unitsConsumed
+      )
+    : chapter.totalUnitsConsumed;
   const isLocked = cooldownRemaining > 0;
 
   return (
@@ -241,7 +249,7 @@ export interface UseCozyCadenceFeedOptions<T>
 }
 
 export interface UseCozyCadenceFeedResult<T> {
-  /** Virtualized feed rows with `cadence_chapter` cards slotted every N items. */
+  /** Virtualized feed rows gated to the current unlocked chapter. */
   rows: CozyVirtualizedFeedRow<T>[];
   /** Underlying `useCadenceSession` state and controllers. */
   session: UseCadenceSessionResult;
@@ -259,21 +267,28 @@ export interface UseCozyCadenceFeedResult<T> {
 
 /**
  * Integrates `useCadenceSession` with the Cozy feed virtualizer (`TASK-CADENCE-ADAPTER-COZY`).
- * Slots an in-feed chapter card after every 15 items (by default) and wires session actions.
+ * Slots an in-feed chapter card after every 15 items (by default), gates subsequent chapters
+ * until the current chapter is completed and advanced, and wires session actions.
  */
 export function useCozyCadenceFeed<T>(
   items: readonly T[],
   options: UseCozyCadenceFeedOptions<T> = {}
 ): UseCozyCadenceFeedResult<T> {
-  const interval =
-    options.chapterInterval ??
-    options.unitLimit ??
-    options.config?.unitLimit ??
-    DEFAULT_COZY_CHAPTER_INTERVAL;
+  const explicitInterval =
+    options.chapterInterval ?? options.unitLimit ?? options.config?.unitLimit;
+
+  const normalizedExplicitInterval =
+    typeof explicitInterval === 'number' &&
+    Number.isFinite(explicitInterval) &&
+    explicitInterval >= 1
+      ? Math.floor(explicitInterval)
+      : undefined;
 
   const sessionConfig: Partial<CadenceConfig> = {
     ...options.config,
-    unitLimit: interval,
+    ...(normalizedExplicitInterval !== undefined
+      ? { unitLimit: normalizedExplicitInterval }
+      : {}),
     ...(options.mode !== undefined ? { mode: options.mode } : {}),
     ...(options.cooldownMinutes !== undefined
       ? { cooldownMinutes: options.cooldownMinutes }
@@ -285,27 +300,49 @@ export function useCozyCadenceFeed<T>(
 
   const session = useCadenceSession({
     ...options,
+    unitLimit: normalizedExplicitInterval,
     config: sessionConfig,
   });
 
-  const [completedChapters, setCompletedChapters] = useState<number[]>([]);
+  const effectiveInterval =
+    normalizedExplicitInterval ??
+    session.config.unitLimit ??
+    DEFAULT_COZY_CHAPTER_INTERVAL;
+
   const [isOnBreak, setIsOnBreak] = useState(false);
 
-  const rows = useMemo(
+  const allRows = useMemo(
     () =>
       injectCozyChapterSlots(items, {
-        chapterInterval: interval,
+        chapterInterval: effectiveInterval,
         enabledCategories: session.config.enabledCategories,
         getItemKey: options.getItemKey,
         rng: options.rng,
       }),
     [
       items,
-      interval,
+      effectiveInterval,
       session.config.enabledCategories,
       options.getItemKey,
       options.rng,
     ]
+  );
+
+  // Gate feed rows by the current unlocked chapter so later chapters are not
+  // accessible before completing the current chapter and any active hard cooldown.
+  const maxAllowedChapter =
+    session.mode === 'disabled'
+      ? Number.POSITIVE_INFINITY
+      : session.chapterIndex + 1;
+
+  const rows = useMemo(
+    () => allRows.filter((row) => row.chapterNumber <= maxAllowedChapter),
+    [allRows, maxAllowedChapter]
+  );
+
+  const completedChapters = useMemo(
+    () => Array.from({ length: session.chapterIndex }, (_, idx) => idx + 1),
+    [session.chapterIndex]
   );
 
   const registerFeedItemView = useCallback(
@@ -325,13 +362,15 @@ export function useCozyCadenceFeed<T>(
 
   const handleKeepScrolling = useCallback(
     (chapterNumber: number) => {
-      if (session.cooldownRemaining > 0) {
+      const activeChapterNumber = session.chapterIndex + 1;
+      if (
+        chapterNumber !== activeChapterNumber ||
+        !session.isChapterComplete ||
+        session.cooldownRemaining > 0
+      ) {
         return;
       }
       setIsOnBreak(false);
-      setCompletedChapters((prev) =>
-        prev.includes(chapterNumber) ? prev : [...prev, chapterNumber]
-      );
       session.advanceChapter();
       options.onKeepScrolling?.(chapterNumber, session.metrics);
     },

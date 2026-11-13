@@ -58,14 +58,17 @@ export function createMemoryStorage(): StorageLike {
   };
 }
 
-function resolveBrowserStorage(explicit?: StorageLike | null): StorageLike {
+function resolveBrowserStorage(
+  explicit: StorageLike | null | undefined,
+  fallback: StorageLike
+): StorageLike {
   if (explicit) {
     return explicit;
   }
   if (typeof window !== 'undefined' && window.localStorage) {
     return window.localStorage;
   }
-  return createMemoryStorage();
+  return fallback;
 }
 
 /**
@@ -181,10 +184,12 @@ export function createLocalStorageAdapter(
   const metricsKey = `${prefix}:metrics`;
   const configKey = `${prefix}:config`;
   const fallbackMemory = createMemoryStorage();
+  let metricsInFallback = false;
+  let configInFallback = false;
 
   const getStore = (): StorageLike => {
     try {
-      return resolveBrowserStorage(options.storage);
+      return resolveBrowserStorage(options.storage, fallbackMemory);
     } catch {
       return fallbackMemory;
     }
@@ -193,13 +198,25 @@ export function createLocalStorageAdapter(
   return {
     loadMetrics(): PersistedCadenceSession | null {
       try {
-        const raw = getStore().getItem(metricsKey);
+        const raw = metricsInFallback
+          ? (fallbackMemory.getItem(metricsKey) ??
+            getStore().getItem(metricsKey))
+          : (getStore().getItem(metricsKey) ??
+            fallbackMemory.getItem(metricsKey));
         if (!raw) return null;
         const parsed = JSON.parse(raw);
         if (!parsed || typeof parsed !== 'object') return null;
         return sanitizePersistedSession(parsed as Record<string, unknown>);
       } catch {
-        return null;
+        try {
+          const fallbackRaw = fallbackMemory.getItem(metricsKey);
+          if (!fallbackRaw) return null;
+          const parsed = JSON.parse(fallbackRaw);
+          if (!parsed || typeof parsed !== 'object') return null;
+          return sanitizePersistedSession(parsed as Record<string, unknown>);
+        } catch {
+          return null;
+        }
       }
     },
 
@@ -208,12 +225,16 @@ export function createLocalStorageAdapter(
       const serialized = JSON.stringify(clean);
       try {
         getStore().setItem(metricsKey, serialized);
+        metricsInFallback = false;
+        fallbackMemory.setItem(metricsKey, serialized);
       } catch {
+        metricsInFallback = true;
         fallbackMemory.setItem(metricsKey, serialized);
       }
     },
 
     clearMetrics(): void {
+      metricsInFallback = false;
       try {
         getStore().removeItem(metricsKey);
       } catch {
@@ -224,13 +245,23 @@ export function createLocalStorageAdapter(
 
     loadConfig(): Partial<CadenceConfig> | null {
       try {
-        const raw = getStore().getItem(configKey);
+        const raw = configInFallback
+          ? (fallbackMemory.getItem(configKey) ?? getStore().getItem(configKey))
+          : (getStore().getItem(configKey) ?? fallbackMemory.getItem(configKey));
         if (!raw) return null;
         const parsed = JSON.parse(raw);
         if (!parsed || typeof parsed !== 'object') return null;
         return sanitizePersistedConfig(parsed as Record<string, unknown>);
       } catch {
-        return null;
+        try {
+          const fallbackRaw = fallbackMemory.getItem(configKey);
+          if (!fallbackRaw) return null;
+          const parsed = JSON.parse(fallbackRaw);
+          if (!parsed || typeof parsed !== 'object') return null;
+          return sanitizePersistedConfig(parsed as Record<string, unknown>);
+        } catch {
+          return null;
+        }
       }
     },
 
@@ -239,12 +270,16 @@ export function createLocalStorageAdapter(
       const serialized = JSON.stringify(clean);
       try {
         getStore().setItem(configKey, serialized);
+        configInFallback = false;
+        fallbackMemory.setItem(configKey, serialized);
       } catch {
+        configInFallback = true;
         fallbackMemory.setItem(configKey, serialized);
       }
     },
 
     clearConfig(): void {
+      configInFallback = false;
       try {
         getStore().removeItem(configKey);
       } catch {

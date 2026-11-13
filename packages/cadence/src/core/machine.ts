@@ -178,7 +178,10 @@ export function cadenceReducer(
       }
 
       const nextUnits = state.unitsConsumed + amount;
-      const effectiveLimit = state.snoozedUntilUnit ?? state.config.unitLimit;
+      const effectiveLimit =
+        state.config.mode === 'soft_prompt'
+          ? (state.snoozedUntilUnit ?? state.config.unitLimit)
+          : state.config.unitLimit;
       const reachedBoundary = nextUnits >= effectiveLimit;
       const isHard = state.config.mode === 'hard_cooldown';
       const totalCooldownMs = state.config.cooldownMinutes * 60 * 1000;
@@ -202,6 +205,10 @@ export function cadenceReducer(
     }
 
     case 'COMPLETE_CHAPTER': {
+      if (!state.isChapterComplete) {
+        return state;
+      }
+
       if (
         state.config.mode === 'hard_cooldown' &&
         isHardCooldownActive(state, now)
@@ -222,14 +229,7 @@ export function cadenceReducer(
     }
 
     case 'SNOOZE_OFFRAMP': {
-      if (state.config.mode === 'disabled') {
-        return state;
-      }
-
-      if (
-        state.config.mode === 'hard_cooldown' &&
-        isHardCooldownActive(state, now)
-      ) {
+      if (state.config.mode !== 'soft_prompt') {
         return state;
       }
 
@@ -288,9 +288,11 @@ export function cadenceReducer(
           : state.lastActiveTimestamp;
 
       const snoozedUntilUnit =
-        metrics.snoozedUntilUnit !== undefined
-          ? metrics.snoozedUntilUnit
-          : state.snoozedUntilUnit;
+        state.config.mode === 'soft_prompt'
+          ? metrics.snoozedUntilUnit !== undefined
+            ? metrics.snoozedUntilUnit
+            : state.snoozedUntilUnit
+          : null;
 
       const effectiveLimit = snoozedUntilUnit ?? state.config.unitLimit;
       const isChapterComplete =
@@ -298,17 +300,23 @@ export function cadenceReducer(
           ? false
           : (metrics.isChapterComplete ?? unitsConsumed >= effectiveLimit);
 
-      const cooldownStartedAt =
+      const isHard = state.config.mode === 'hard_cooldown';
+      const totalCooldownMs = state.config.cooldownMinutes * 60 * 1000;
+
+      const rawCooldownStartedAt =
         metrics.cooldownStartedAt !== undefined
           ? metrics.cooldownStartedAt
           : state.cooldownStartedAt;
 
+      const cooldownStartedAt =
+        isChapterComplete && isHard && totalCooldownMs > 0
+          ? (rawCooldownStartedAt ?? now)
+          : null;
+
       const cooldownUntil =
-        metrics.cooldownUntil !== undefined
-          ? metrics.cooldownUntil
-          : cooldownStartedAt !== null && state.config.mode === 'hard_cooldown'
-            ? cooldownStartedAt + state.config.cooldownMinutes * 60 * 1000
-            : null;
+        cooldownStartedAt !== null
+          ? (metrics.cooldownUntil ?? cooldownStartedAt + totalCooldownMs)
+          : null;
 
       return {
         ...state,
@@ -327,16 +335,32 @@ export function cadenceReducer(
         ...state.config,
         ...action.config,
       });
-      const effectiveLimit = state.snoozedUntilUnit ?? nextConfig.unitLimit;
+      const snoozedUntilUnit =
+        nextConfig.mode === 'soft_prompt' ? state.snoozedUntilUnit : null;
+      const effectiveLimit = snoozedUntilUnit ?? nextConfig.unitLimit;
       const isChapterComplete =
         nextConfig.mode === 'disabled'
           ? false
           : state.unitsConsumed >= effectiveLimit;
 
+      const isHard = nextConfig.mode === 'hard_cooldown';
+      const totalCooldownMs = nextConfig.cooldownMinutes * 60 * 1000;
+
+      const cooldownStartedAt =
+        isChapterComplete && isHard && totalCooldownMs > 0
+          ? (state.cooldownStartedAt ?? now)
+          : null;
+
+      const cooldownUntil =
+        cooldownStartedAt !== null ? cooldownStartedAt + totalCooldownMs : null;
+
       return {
         ...state,
         config: nextConfig,
         isChapterComplete,
+        cooldownStartedAt,
+        cooldownUntil,
+        snoozedUntilUnit,
       };
     }
 

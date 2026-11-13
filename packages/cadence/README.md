@@ -6,4 +6,4 @@ Headless pacing state machine, zero-knowledge local persistence, pluggable micro
 
 - `@digitalcanopy/cadence` / `@digitalcanopy/cadence/core` — `CadenceConfig`, `SessionMetrics`, `BoundaryPolicy`, `cadenceReducer`, `createLocalStorageAdapter`, and `useCadenceSession`.
 - `@digitalcanopy/cadence/widgets` — `registerWidget`, `getEnabledWidgets`, `getRandomWidget`, and baseline built-in widgets (`VocabWidget`, `ValeriePollWidget`, `PuzzleWidget`, `EyeBreakWidget`).
-- `@digitalcanopy/cadence/adapters` — `ChapterEndCard`, `injectCadenceChapterSlots`, `useCozyCadenceFeed`, and `CozyFeedChapterCard`.
+- `@digitalcanopy/cadence/adapters` — `ChapterEndCard`, `injectCozyChapterSlots` (`injectCadenceChapterSlots`), `useCozyCadenceFeed`, and `CozyFeedChapterCard`.

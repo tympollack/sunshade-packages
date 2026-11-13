@@ -40,9 +40,16 @@ describe('Cadence Engine State Machine (TASK-CADENCE-ENGINE-TYPES & MACHINE)', (
     expect(state.lastActiveTimestamp).toBe(1200);
   });
 
-  it('advances chapterIndex and resets chapter units on COMPLETE_CHAPTER', () => {
+  it('advances chapterIndex and resets chapter units on COMPLETE_CHAPTER only after boundary is reached', () => {
     let state = createInitialSessionState({ unitLimit: 2, mode: 'soft_prompt' }, 1000);
-    state = cadenceReducer(state, { type: 'CONSUME_UNIT', amount: 2, now: 2000 });
+    state = cadenceReducer(state, { type: 'CONSUME_UNIT', amount: 1, now: 1500 });
+
+    // Premature COMPLETE_CHAPTER before reaching unitLimit is a no-op
+    const premature = cadenceReducer(state, { type: 'COMPLETE_CHAPTER', now: 1600 });
+    expect(premature.chapterIndex).toBe(0);
+    expect(premature.unitsConsumed).toBe(1);
+
+    state = cadenceReducer(state, { type: 'CONSUME_UNIT', amount: 1, now: 2000 });
     expect(state.isChapterComplete).toBe(true);
 
     state = cadenceReducer(state, { type: 'COMPLETE_CHAPTER', now: 3000 });
@@ -52,7 +59,7 @@ describe('Cadence Engine State Machine (TASK-CADENCE-ENGINE-TYPES & MACHINE)', (
     expect(state.lastActiveTimestamp).toBe(3000);
   });
 
-  it('extends threshold on SNOOZE_OFFRAMP in soft_prompt mode', () => {
+  it('extends threshold on SNOOZE_OFFRAMP in soft_prompt mode but blocks snooze in hard_cooldown mode', () => {
     let state = createInitialSessionState(
       { unitLimit: 5, mode: 'soft_prompt', snoozeUnits: 3 },
       1000
@@ -70,6 +77,37 @@ describe('Cadence Engine State Machine (TASK-CADENCE-ENGINE-TYPES & MACHINE)', (
     state = cadenceReducer(state, { type: 'CONSUME_UNIT', amount: 1, now: 1800 });
     expect(state.unitsConsumed).toBe(8);
     expect(state.isChapterComplete).toBe(true);
+
+    // In hard_cooldown mode, SNOOZE_OFFRAMP before the boundary is also rejected
+    let hardState = createInitialSessionState(
+      { unitLimit: 5, mode: 'hard_cooldown', cooldownMinutes: 10 },
+      1000
+    );
+    hardState = cadenceReducer(hardState, { type: 'CONSUME_UNIT', amount: 4, now: 1200 });
+    hardState = cadenceReducer(hardState, { type: 'SNOOZE_OFFRAMP', snoozeUnits: 5, now: 1300 });
+    expect(hardState.snoozedUntilUnit).toBeNull();
+    hardState = cadenceReducer(hardState, { type: 'CONSUME_UNIT', amount: 1, now: 1400 });
+    expect(hardState.isChapterComplete).toBe(true);
+    expect(hardState.cooldownStartedAt).toBe(1400);
+  });
+
+  it('initializes cooldown timestamps when UPDATE_CONFIG transitions a completed chapter into hard_cooldown', () => {
+    let state = createInitialSessionState(
+      { unitLimit: 5, mode: 'soft_prompt', cooldownMinutes: 10 },
+      1000
+    );
+    state = cadenceReducer(state, { type: 'CONSUME_UNIT', amount: 5, now: 2000 });
+    expect(state.isChapterComplete).toBe(true);
+    expect(state.cooldownStartedAt).toBeNull();
+
+    state = cadenceReducer(state, {
+      type: 'UPDATE_CONFIG',
+      config: { mode: 'hard_cooldown', cooldownMinutes: 10 },
+      now: 5000,
+    });
+    expect(state.isChapterComplete).toBe(true);
+    expect(state.cooldownStartedAt).toBe(5000);
+    expect(getCooldownRemainingSeconds(state, 5000)).toBe(600);
   });
 
   it('evaluates wall-clock deltas deterministically in hard_cooldown mode', () => {
@@ -196,10 +234,39 @@ describe('Local Zero-Knowledge Storage Adapter (TASK-CADENCE-ENGINE-STORAGE)', (
     expect(adapter.loadMetrics()).toBeNull();
     expect(adapter.loadConfig()).toBeNull();
   });
+
+  it('retains fallback snapshots when primary browser storage throws on setItem', () => {
+    const throwingStore = {
+      getItem: () => JSON.stringify({ unitsConsumed: 1, chapterIndex: 0, lastActiveTimestamp: 10 }),
+      setItem: () => {
+        throw new Error('QuotaExceededError');
+      },
+      removeItem: () => {},
+    };
+
+    const adapter = createLocalStorageAdapter({
+      keyPrefix: 'quota:test',
+      storage: throwingStore,
+    });
+
+    adapter.saveMetrics({
+      unitsConsumed: 15,
+      chapterIndex: 0,
+      lastActiveTimestamp: 500,
+      isChapterComplete: true,
+    });
+
+    expect(adapter.loadMetrics()).toEqual({
+      unitsConsumed: 15,
+      chapterIndex: 0,
+      lastActiveTimestamp: 500,
+      isChapterComplete: true,
+    });
+  });
 });
 
 describe('useCadenceSession Consumer Hook (TASK-CADENCE-ENGINE-HOOK)', () => {
-  it('registers actions, triggers chapter boundary, advances chapters, and resets session', () => {
+  it('registers actions, triggers chapter boundary, advances chapters, and persists config across remounts', () => {
     let clock = 10_000;
     const storage = createLocalStorageAdapter({
       keyPrefix: 'hook:test',
@@ -207,7 +274,7 @@ describe('useCadenceSession Consumer Hook (TASK-CADENCE-ENGINE-HOOK)', () => {
     });
     const onChapterComplete = vi.fn();
 
-    const { result } = renderHook(() =>
+    const { result, unmount } = renderHook(() =>
       useCadenceSession({
         unitLimit: 3,
         mode: 'soft_prompt',
@@ -247,11 +314,22 @@ describe('useCadenceSession Consumer Hook (TASK-CADENCE-ENGINE-HOOK)', () => {
     expect(result.current.currentCount).toBe(0);
     expect(result.current.isChapterComplete).toBe(false);
 
+    // Remount without explicit config props: restores persisted unitLimit: 3 & chapterIndex: 1
+    unmount();
+    const remounted = renderHook(() =>
+      useCadenceSession({
+        storage,
+        now: () => clock,
+      })
+    );
+    expect(remounted.result.current.limit).toBe(3);
+    expect(remounted.result.current.chapterIndex).toBe(1);
+
     act(() => {
       clock = 14_000;
-      result.current.resetSession();
+      remounted.result.current.resetSession();
     });
-    expect(result.current.chapterIndex).toBe(0);
-    expect(result.current.currentCount).toBe(0);
+    expect(remounted.result.current.chapterIndex).toBe(0);
+    expect(remounted.result.current.currentCount).toBe(0);
   });
 });
