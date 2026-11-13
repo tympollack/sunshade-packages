@@ -130,7 +130,9 @@ export async function hoistSystemicBurden(
 
 /**
  * Updates research status and 1-page action summary notes on `valerie.hoisted_burdens`
- * on behalf of the paired Civic Advocate with strict transition and `{ error }` guards.
+ * (deployed via `sunshade-db-platform/supabase/migrations/20261113173659_valerie_hoist_protocol.sql`)
+ * on behalf of the paired Civic Advocate with optimistic concurrency on `currentStatus`,
+ * monotonic transition validation, and `{ error }` guards.
  */
 export async function updateHoistedBurdenResearch(
   client: SupabaseSchemaRpcClient,
@@ -161,6 +163,7 @@ export async function updateHoistedBurdenResearch(
     .update(payload)
     .eq('id', input.burdenId)
     .eq('advocate_id', input.advocateId)
+    .eq('status', input.currentStatus)
     .select('*')
     .single();
 
@@ -168,7 +171,9 @@ export async function updateHoistedBurdenResearch(
     throw new Error(`Failed to update hoisted burden research: ${error.message}`);
   }
   if (!data) {
-    throw new Error('Hoisted burden not found for paired advocate');
+    throw new Error(
+      `Hoisted burden conflict: row not found or status already advanced from ${input.currentStatus}`,
+    );
   }
   return data as HoistedBurden;
 }

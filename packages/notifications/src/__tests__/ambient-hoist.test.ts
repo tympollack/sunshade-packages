@@ -28,6 +28,7 @@ function createMockSupabaseClient(overrides?: {
   client: SupabaseSchemaRpcClient;
   rpcSpy: ReturnType<typeof vi.fn>;
   schemaSpy: ReturnType<typeof vi.fn>;
+  updateEqSpies: Array<[string, unknown]>;
 } {
   const rpcSpy = vi.fn().mockResolvedValue(
     overrides?.rpcResult ?? { data: null, error: null },
@@ -38,6 +39,17 @@ function createMockSupabaseClient(overrides?: {
   const singleSpy = vi.fn().mockResolvedValue(
     overrides?.updateResult ?? { data: null, error: null },
   );
+  const updateEqSpies: Array<[string, unknown]> = [];
+
+  const updateBuilder = {
+    eq: vi.fn((col: string, val: unknown) => {
+      updateEqSpies.push([col, val]);
+      return updateBuilder;
+    }),
+    select: vi.fn().mockReturnValue({
+      single: singleSpy,
+    }),
+  };
 
   const schemaSpy = vi.fn().mockReturnValue({
     rpc: rpcSpy,
@@ -47,15 +59,7 @@ function createMockSupabaseClient(overrides?: {
           order: orderSpy,
         }),
       }),
-      update: vi.fn().mockReturnValue({
-        eq: vi.fn().mockReturnValue({
-          eq: vi.fn().mockReturnValue({
-            select: vi.fn().mockReturnValue({
-              single: singleSpy,
-            }),
-          }),
-        }),
-      }),
+      update: vi.fn().mockReturnValue(updateBuilder),
     }),
   });
 
@@ -63,6 +67,7 @@ function createMockSupabaseClient(overrides?: {
     client: { schema: schemaSpy },
     rpcSpy,
     schemaSpy,
+    updateEqSpies,
   };
 }
 
@@ -283,7 +288,7 @@ describe('Advocate Hoist-vs-Hover Protocol & Friction Shield (TASK-ECO-HOIST-DES
       created_at: '2026-11-13T14:00:00Z',
     };
 
-    const { client, rpcSpy, schemaSpy } = createMockSupabaseClient({
+    const { client, rpcSpy, schemaSpy, updateEqSpies } = createMockSupabaseClient({
       rpcResult: { data: sampleHoisted, error: null },
       updateResult: {
         data: {
@@ -317,6 +322,24 @@ describe('Advocate Hoist-vs-Hover Protocol & Friction Shield (TASK-ECO-HOIST-DES
       advocateNotes: '1-page zoning variance summary prepared for pilot.',
     });
     expect(updated.status).toBe('RETURNED_TO_PILOT');
+    expect(updateEqSpies).toEqual([
+      ['id', 'burden-1'],
+      ['advocate_id', 'advocate-222'],
+      ['status', 'SUMMARY_PREPARED'],
+    ]);
+
+    // Stale write where stored status already advanced returns null data and throws conflict
+    const staleClient = createMockSupabaseClient({
+      updateResult: { data: null, error: null },
+    });
+    await expect(
+      updateHoistedBurdenResearch(staleClient.client, {
+        burdenId: 'burden-1',
+        advocateId: 'advocate-222',
+        currentStatus: 'HOISTED',
+        nextStatus: 'RESEARCHED',
+      }),
+    ).rejects.toThrow(/status already advanced from HOISTED/);
 
     await expect(
       updateHoistedBurdenResearch(client, {

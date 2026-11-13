@@ -52,6 +52,13 @@ export interface AmbientIngestResult {
   trigger_external_push: boolean;
 }
 
+export interface SupabaseUpdateFilterBuilder {
+  eq(column: string, value: unknown): SupabaseUpdateFilterBuilder;
+  select(columns?: string): {
+    single(): PromiseLike<{ data: unknown | null; error: { message: string } | null }>;
+  };
+}
+
 export interface SupabaseSchemaRpcClient {
   schema(schemaName: string): {
     rpc<T = unknown>(
@@ -70,23 +77,7 @@ export interface SupabaseSchemaRpcClient {
           ): PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>;
         };
       };
-      update(values: Record<string, unknown>): {
-        eq(
-          column: string,
-          value: unknown,
-        ): {
-          eq(
-            column2: string,
-            value2: unknown,
-          ): {
-            select(
-              columns?: string,
-            ): {
-              single(): PromiseLike<{ data: unknown | null; error: { message: string } | null }>;
-            };
-          };
-        };
-      };
+      update(values: Record<string, unknown>): SupabaseUpdateFilterBuilder;
     };
   };
 }
