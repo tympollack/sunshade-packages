@@ -23,6 +23,9 @@ if (targetPkg === 'all' || targetPkg === '@digitalcanopy/assets') {
 if (targetPkg === 'all' || targetPkg === '@digitalcanopy/notifications') {
   content += `"@digitalcanopy/notifications": ${increment}\n`;
 }
+if (targetPkg === 'all' || targetPkg === '@digitalcanopy/cadence') {
+  content += `"@digitalcanopy/cadence": ${increment}\n`;
+}
 content += `---\n\nManual ${increment} release for ${targetPkg}\n`;
 
 if (!fs.existsSync('.changeset')) {
