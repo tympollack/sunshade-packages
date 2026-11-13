@@ -1,0 +1,18 @@
+import { defineConfig } from 'vitest/config';
+import react from '@vitejs/plugin-react';
+import path from 'node:path';
+
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      'react-native': 'react-native-web',
+      '@digitalcanopy/ui': path.resolve(__dirname, '../ui/src'),
+    },
+  },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    css: false,
+  },
+});

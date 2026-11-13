@@ -26,6 +26,7 @@ on:
           - '@digitalcanopy/supabase'
           - '@digitalcanopy/assets'
           - '@digitalcanopy/notifications'
+          - '@digitalcanopy/cadence'
       publish:
         description: 'Publish release to npm registry immediately'
         required: true
