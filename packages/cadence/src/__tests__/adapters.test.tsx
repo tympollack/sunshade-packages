@@ -10,6 +10,12 @@ import {
   injectCozyChapterSlots,
   useCozyCadenceFeed,
 } from '../adapters/cozy';
+import {
+  CADENCE_APP_PRESETS,
+  EcosystemChapterOffRamp,
+  getCadenceAppPreset,
+  useEcosystemCadenceSession,
+} from '../adapters/ecosystem';
 import { ChapterEndCard } from '../components/ChapterEndCard';
 import { createLocalStorageAdapter, createMemoryStorage } from '../core/storage';
 
@@ -170,5 +176,57 @@ describe('ChapterEndCard & Cozy Feed Virtualization Adapter (STORY-CADENCE-ADAPT
     expect(result.current.completedChapters).toEqual([1]);
     expect(result.current.session.chapterIndex).toBe(1);
     expect(result.current.rows).toHaveLength(32);
+  });
+
+  it('provides universal session bounding presets, per-app storage isolation, and EcosystemChapterOffRamp for COZY, PATCHWORK, and VOTARY (STORY-ECO-CADENCE-GATES)', () => {
+    expect(CADENCE_APP_PRESETS.COZY.config.unitLimit).toBe(15);
+    expect(CADENCE_APP_PRESETS.PATCHWORK.config.unitLimit).toBe(12);
+    expect(CADENCE_APP_PRESETS.VOTARY.config.unitLimit).toBe(10);
+    expect(CADENCE_APP_PRESETS.COZY.storageKeyPrefix).not.toBe(
+      CADENCE_APP_PRESETS.VOTARY.storageKeyPrefix
+    );
+
+    const votaryPreset = getCadenceAppPreset('VOTARY');
+    expect(votaryPreset.displayName).toBe('The Votary');
+    expect(votaryPreset.formatChapterSubtext(10)).toContain(
+      'Let your paired Advocate carry the heavy research.'
+    );
+
+    // Verify COZY and VOTARY do not collide when using default per-app storage prefixes
+    window.localStorage.clear();
+    const { result: cozyHook } = renderHook(() =>
+      useEcosystemCadenceSession('COZY')
+    );
+    act(() => {
+      cozyHook.current.registerAction(12);
+    });
+    expect(cozyHook.current.currentCount).toBe(12);
+
+    const { result: votaryHook } = renderHook(() =>
+      useEcosystemCadenceSession('VOTARY', { rng: () => 0 })
+    );
+    expect(votaryHook.current.currentCount).toBe(0);
+    expect(votaryHook.current.isChapterComplete).toBe(false);
+    expect(votaryHook.current.limit).toBe(10);
+    expect(votaryHook.current.chapterHeadline).toBe(
+      'Deliberation Chapter Complete · Civic Focus Preserved'
+    );
+
+    act(() => {
+      votaryHook.current.registerAction(10);
+    });
+    expect(votaryHook.current.isChapterComplete).toBe(true);
+    expect(votaryHook.current.chapterSubtext).toContain('10 civic proposals');
+
+    render(<EcosystemChapterOffRamp session={votaryHook.current} />);
+    expect(
+      screen.getByText('Deliberation Chapter Complete · Civic Focus Preserved')
+    ).toBeInTheDocument();
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('cadence-load-next-chapter-link'));
+    });
+    expect(votaryHook.current.chapterIndex).toBe(1);
+    expect(votaryHook.current.isChapterComplete).toBe(false);
   });
 });
