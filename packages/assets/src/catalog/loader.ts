@@ -123,10 +123,12 @@ export async function loadCatalogAssets(options: CatalogQueryOptions = {}): Prom
       let query = queryBuilder.select('id, app_scope, category, asset_key, cdn_url, metadata, created_at');
 
       if (options.app_scope) {
-        if (Array.isArray(options.app_scope)) {
-          query = query.in('app_scope', options.app_scope);
-        } else {
-          query = query.eq('app_scope', options.app_scope);
+        const requestedScopes = Array.isArray(options.app_scope)
+          ? options.app_scope
+          : [options.app_scope];
+        if (!requestedScopes.includes('all')) {
+          const scopesWithShared = Array.from(new Set([...requestedScopes, 'all']));
+          query = query.in('app_scope', scopesWithShared);
         }
       }
 

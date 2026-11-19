@@ -4,6 +4,7 @@ import {
   createAssetRegistry,
   assetRegistry,
   playingCardsAtlas,
+  isometricTilesAtlas,
   toFlameSpriteData,
   SEED_CATALOG_ASSETS,
 } from '../index';
@@ -148,6 +149,46 @@ describe('@digitalcanopy/assets Hot-Swapping Registry', () => {
       expect(registry.resolveCardUrl('card-spades-a')).toBe(
         'https://cdn.sunshade.icu/assets/kenney/cards/card-spades-a.png'
       );
+    });
+
+    it('routes audio URLs through ui-pack overrides correctly', () => {
+      registry.registerPackOverride('ui-pack', 'https://custom-ui.com/pack');
+      const audioUrl = registry.resolveAudioUrl('tap-clean');
+      expect(audioUrl).toBe('https://custom-ui.com/pack/sounds/tap-clean.ogg');
+    });
+
+    it('preserves manifest anchor on frame-only override for isometric tiles', () => {
+      registry.registerOverride('tile-isometric-grass', {
+        url: 'https://custom.com/tile.png',
+        frame: { x: 0, y: 0, w: 512, h: 256 },
+      });
+
+      const frame = registry.resolveFrame(isometricTilesAtlas, 'tile-isometric-grass');
+      expect(frame?.frame).toEqual({ x: 0, y: 0, w: 512, h: 256 });
+      expect(frame?.anchor).toEqual({ ax: 0.5, ay: 0.75 });
+
+      const flame = registry.resolveFlameSpriteData(isometricTilesAtlas, 'tile-isometric-grass');
+      expect(flame).toEqual({
+        srcPosition: [0, 0],
+        srcSize: [512, 256],
+        anchor: [0.5, 0.75],
+      });
+    });
+
+    it('preserves manifest frame dimensions on anchor-only override', () => {
+      registry.registerOverride('tile-isometric-grass', {
+        url: 'https://custom.com/tile.png',
+        anchor: { ax: 0.5, ay: 0.9 },
+      });
+
+      const frame = registry.resolveFrame(isometricTilesAtlas, 'tile-isometric-grass');
+      expect(frame?.frame.w).toBe(256);
+      expect(frame?.frame.h).toBe(128);
+      expect(frame?.anchor).toEqual({ ax: 0.5, ay: 0.9 });
+
+      const flame = registry.resolveFlameSpriteData(isometricTilesAtlas, 'tile-isometric-grass');
+      expect(flame?.anchor).toEqual([0.5, 0.9]);
+      expect(flame?.srcSize).toEqual([256, 128]);
     });
   });
 

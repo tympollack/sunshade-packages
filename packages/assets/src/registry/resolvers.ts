@@ -6,7 +6,6 @@ import {
 } from '../resolvers/cdn';
 import {
   getFrameCoordinates,
-  toFlameSpriteData,
   type AtlasFrame,
   type AtlasManifest,
 } from '../manifests/index';
@@ -41,7 +40,9 @@ export function resolveAssetPathWithOverrides(
       return packOverride(cleanPath, ext);
     }
     const cleanBase = packOverride.replace(/\/+$/, '');
-    const finalExt = ext ? (ext.startsWith('.') ? ext.slice(1) : ext) : undefined;
+    const finalExt = ext
+      ? (ext.startsWith('.') ? ext.slice(1) : ext)
+      : (/\.[a-zA-Z0-9]+$/.test(cleanPath) ? undefined : 'png');
     const targetPath =
       finalExt && !cleanPath.endsWith(`.${finalExt}`)
         ? `${cleanPath.replace(/\.[a-zA-Z0-9]+$/, '')}.${finalExt}`
@@ -109,11 +110,14 @@ export function resolveAudioUrlWithOverrides(
   if (overrides.has(cleanName)) {
     return overrides.get(cleanName)!.url;
   }
-  return resolveAssetPathWithOverrides('ui-pack/sounds', cleanName, overrides, packOverrides, ext);
+  if (packOverrides.has('ui-pack/sounds')) {
+    return resolveAssetPathWithOverrides('ui-pack/sounds', cleanName, overrides, packOverrides, ext);
+  }
+  return resolveAssetPathWithOverrides('ui-pack', `sounds/${cleanName}`, overrides, packOverrides, ext);
 }
 
 /**
- * Resolves atlas frame coordinates with override support.
+ * Resolves atlas frame coordinates with independent frame and anchor override merging.
  */
 export function resolveFrameWithOverrides(
   manifest: AtlasManifest,
@@ -122,37 +126,43 @@ export function resolveFrameWithOverrides(
 ): AtlasFrame | undefined {
   const cleanKey = frameKey.trim();
   const override = overrides.get(cleanKey);
+  const baseFrame = getFrameCoordinates(manifest, cleanKey);
 
-  if (override && override.frame) {
-    return {
-      frame: override.frame,
-      anchor: override.anchor,
-      trimmed: false,
-      rotated: false,
-    };
+  if (!override || (!override.frame && !override.anchor)) {
+    return baseFrame;
   }
 
-  return getFrameCoordinates(manifest, cleanKey);
+  if (!baseFrame && !override.frame) {
+    return undefined;
+  }
+
+  const mergedFrame = override.frame ?? baseFrame!.frame;
+  const mergedAnchor = override.anchor ?? baseFrame?.anchor;
+
+  return {
+    frame: mergedFrame,
+    ...(mergedAnchor ? { anchor: mergedAnchor } : {}),
+    trimmed: baseFrame?.trimmed ?? false,
+    rotated: baseFrame?.rotated ?? false,
+    ...(baseFrame?.spriteSourceSize ? { spriteSourceSize: baseFrame.spriteSourceSize } : {}),
+    ...(baseFrame?.sourceSize ? { sourceSize: baseFrame.sourceSize } : {}),
+  };
 }
 
 /**
- * Resolves Flame sprite data with override support.
+ * Resolves Flame sprite data deriving directly from merged frame and anchor coordinates.
  */
 export function resolveFlameDataWithOverrides(
   manifest: AtlasManifest,
   frameKey: string,
   overrides: Map<string, AssetOverride>
 ): FlameSpriteData | null {
-  const cleanKey = frameKey.trim();
-  const override = overrides.get(cleanKey);
+  const frame = resolveFrameWithOverrides(manifest, frameKey, overrides);
+  if (!frame) return null;
 
-  if (override && override.frame) {
-    return {
-      srcPosition: [override.frame.x, override.frame.y],
-      srcSize: [override.frame.w, override.frame.h],
-      anchor: [override.anchor?.ax ?? 0.5, override.anchor?.ay ?? 0.5],
-    };
-  }
-
-  return toFlameSpriteData(manifest, cleanKey);
+  return {
+    srcPosition: [frame.frame.x, frame.frame.y],
+    srcSize: [frame.frame.w, frame.frame.h],
+    anchor: [frame.anchor?.ax ?? 0.5, frame.anchor?.ay ?? 0.5],
+  };
 }

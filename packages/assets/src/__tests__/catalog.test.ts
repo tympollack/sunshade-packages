@@ -168,9 +168,33 @@ describe('@digitalcanopy/assets Catalog Schema & Data Layer', () => {
 
       expect(schemaMock).toHaveBeenCalledWith('catalog');
       expect(fromMock).toHaveBeenCalledWith('assets');
+      expect(selectMock().in).toHaveBeenCalledWith('app_scope', ['custom-game', 'all']);
       expect(result).toHaveLength(1);
       expect(result[0].asset_key).toBe('custom-card-ace');
       expect(result[0].cdn_url).toBe('https://cdn.custom.com/card.png');
+    });
+
+    it('omits remote scope query filter when app_scope is all', async () => {
+      const inMock = vi.fn().mockReturnThis();
+      const selectMock = vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnThis(),
+        in: inMock,
+        then: (resolve: any) => resolve({ data: [], error: null }),
+      });
+
+      const mockSupabase = {
+        schema: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({ select: selectMock }),
+        }),
+      };
+
+      await loadCatalogAssets({
+        supabaseClient: mockSupabase as any,
+        app_scope: 'all',
+        fallbackToSeed: false,
+      });
+
+      expect(inMock).not.toHaveBeenCalledWith('app_scope', expect.anything());
     });
 
     it('gracefully falls back to seed data when Supabase query returns error', async () => {
