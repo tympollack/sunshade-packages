@@ -38,7 +38,7 @@ export interface ISqliteExecutor {
   getFirstAsync<T>(sql: string, params?: unknown[]): Promise<T | null>;
 }
 
-function isExpired(expiresAt: string | null, nowMs: number): boolean {
+export function isStubExpired(expiresAt: string | null, nowMs: number): boolean {
   if (!expiresAt) return false;
   const parsed = Date.parse(expiresAt);
   if (Number.isNaN(parsed)) return false;
@@ -73,7 +73,10 @@ export class MemoryStubAdapter implements IStubStorageAdapter {
     const nowMs = nowIso ? Date.parse(nowIso) : Date.now();
     const active: BankedStub[] = [];
     for (const record of this.store.values()) {
-      if (record.status === 'active' && !isExpired(record.stub.expiresAt, nowMs)) {
+      if (
+        record.status === 'active' &&
+        !isStubExpired(record.stub.expiresAt, nowMs)
+      ) {
         active.push({ ...record.stub });
       }
     }
@@ -106,7 +109,7 @@ export class MemoryStubAdapter implements IStubStorageAdapter {
     for (const [stubId, record] of this.store.entries()) {
       if (
         record.status !== 'resolved' &&
-        isExpired(record.stub.expiresAt, nowMs)
+        isStubExpired(record.stub.expiresAt, nowMs)
       ) {
         this.store.delete(stubId);
         purged++;
@@ -153,12 +156,15 @@ export interface IndexedDbStubAdapterOptions {
 
 /**
  * Browser / PWA IndexedDB storage adapter for `BankedStub` persistence.
+ * Supports dynamic version-upgrade store creation when additional `storeName`s
+ * are opened on an existing database, as well as single-transaction atomic resolution.
  */
 export class IndexedDbStubAdapter implements IStubStorageAdapter {
   private readonly dbName: string;
   private readonly storeName: string;
   private readonly idbFactory?: IDBFactory;
   private dbPromise: Promise<IDBDatabase> | null = null;
+  private lockTail: Promise<unknown> = Promise.resolve();
 
   constructor(options?: IndexedDbStubAdapterOptions) {
     this.dbName = options?.dbName ?? 'sunshade_reels_stub_vault';
@@ -166,6 +172,15 @@ export class IndexedDbStubAdapter implements IStubStorageAdapter {
     this.idbFactory =
       options?.indexedDB ??
       (typeof globalThis !== 'undefined' ? globalThis.indexedDB : undefined);
+  }
+
+  private runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.lockTail.then(fn, fn);
+    this.lockTail = next.then(
+      () => undefined,
+      () => undefined
+    );
+    return next;
   }
 
   private getVirtualStore(): Map<string, StoredStubRecord> {
@@ -178,24 +193,61 @@ export class IndexedDbStubAdapter implements IStubStorageAdapter {
     return store;
   }
 
-  private openDatabase(): Promise<IDBDatabase> {
-    if (this.dbPromise) return this.dbPromise;
-    if (!this.idbFactory) {
-      return Promise.reject(new Error('IndexedDB is not available'));
-    }
+  private openDatabaseWithVersion(version?: number): Promise<IDBDatabase> {
+    return new Promise<IDBDatabase>((resolve, reject) => {
+      const request =
+        version !== undefined
+          ? this.idbFactory!.open(this.dbName, version)
+          : this.idbFactory!.open(this.dbName);
 
-    this.dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
-      const request = this.idbFactory!.open(this.dbName, 1);
       request.onupgradeneeded = () => {
         const db = request.result;
         if (!db.objectStoreNames.contains(this.storeName)) {
           db.createObjectStore(this.storeName, { keyPath: 'stub.stubId' });
         }
       };
-      request.onsuccess = () => resolve(request.result);
+
+      request.onsuccess = () => {
+        const db = request.result;
+        db.onversionchange = () => {
+          db.close();
+          if (this.dbPromise) {
+            this.dbPromise = null;
+          }
+        };
+        resolve(db);
+      };
+
       request.onerror = () =>
         reject(request.error ?? new Error('Failed to open IndexedDB'));
     });
+  }
+
+  private async openDatabase(): Promise<IDBDatabase> {
+    if (this.dbPromise) {
+      const existingDb = await this.dbPromise;
+      if (existingDb.objectStoreNames.contains(this.storeName)) {
+        return existingDb;
+      }
+      const nextVersion = existingDb.version + 1;
+      existingDb.close();
+      this.dbPromise = this.openDatabaseWithVersion(nextVersion);
+      return this.dbPromise;
+    }
+
+    if (!this.idbFactory) {
+      throw new Error('IndexedDB is not available');
+    }
+
+    this.dbPromise = (async () => {
+      const db = await this.openDatabaseWithVersion();
+      if (db.objectStoreNames.contains(this.storeName)) {
+        return db;
+      }
+      const nextVersion = db.version + 1;
+      db.close();
+      return this.openDatabaseWithVersion(nextVersion);
+    })();
 
     return this.dbPromise;
   }
@@ -209,27 +261,33 @@ export class IndexedDbStubAdapter implements IStubStorageAdapter {
   }
 
   async putStub(stub: BankedStub): Promise<void> {
-    if (!this.idbFactory) {
-      const vStore = this.getVirtualStore();
-      const existing = vStore.get(stub.stubId);
-      if (existing && existing.status === 'resolved') return;
-      vStore.set(stub.stubId, { stub: { ...stub }, status: 'active' });
-      return;
-    }
+    return this.runExclusive(async () => {
+      if (!this.idbFactory) {
+        const vStore = this.getVirtualStore();
+        const existing = vStore.get(stub.stubId);
+        if (existing && existing.status === 'resolved') return;
+        vStore.set(stub.stubId, { stub: { ...stub }, status: 'active' });
+        return;
+      }
 
-    const existing = await this.getStub(stub.stubId);
-    if (existing && existing.status === 'resolved') return;
-
-    const db = await this.openDatabase();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(this.storeName, 'readwrite');
-      const store = tx.objectStore(this.storeName);
-      store.put({
-        stub: { ...stub },
-        status: 'active',
-      } satisfies StoredStubRecord);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
+      const db = await this.openDatabase();
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(this.storeName, 'readwrite');
+        const store = tx.objectStore(this.storeName);
+        const getReq = store.get(stub.stubId);
+        getReq.onsuccess = () => {
+          const existing = getReq.result as StoredStubRecord | undefined;
+          if (existing && existing.status === 'resolved') {
+            return;
+          }
+          store.put({
+            stub: { ...stub },
+            status: 'active',
+          } satisfies StoredStubRecord);
+        };
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
     });
   }
 
@@ -276,7 +334,7 @@ export class IndexedDbStubAdapter implements IStubStorageAdapter {
     return all
       .filter(
         (rec) =>
-          rec.status === 'active' && !isExpired(rec.stub.expiresAt, nowMs)
+          rec.status === 'active' && !isStubExpired(rec.stub.expiresAt, nowMs)
       )
       .map((rec) => ({ ...rec.stub }))
       .sort((a, b) => a.rollIndex - b.rollIndex);
@@ -286,88 +344,112 @@ export class IndexedDbStubAdapter implements IStubStorageAdapter {
     stubId: string,
     resolution: StubResolutionRecord
   ): Promise<StubResolutionRecord> {
-    if (!this.idbFactory) {
-      const vStore = this.getVirtualStore();
-      const existing = vStore.get(stubId);
-      if (!existing) {
-        throw new Error(`BankedStub "${stubId}" not found in IndexedDbStubAdapter.`);
+    return this.runExclusive(async () => {
+      if (!this.idbFactory) {
+        const vStore = this.getVirtualStore();
+        const existing = vStore.get(stubId);
+        if (!existing) {
+          throw new Error(
+            `BankedStub "${stubId}" not found in IndexedDbStubAdapter.`
+          );
+        }
+        if (existing.status === 'resolved' && existing.resolution) {
+          return { ...existing.resolution };
+        }
+        const frozen = { ...resolution };
+        vStore.set(stubId, {
+          ...existing,
+          status: 'resolved',
+          resolution: frozen,
+        });
+        return { ...frozen };
       }
-      if (existing.status === 'resolved' && existing.resolution) {
-        return { ...existing.resolution };
-      }
-      const frozen = { ...resolution };
-      vStore.set(stubId, {
-        ...existing,
-        status: 'resolved',
-        resolution: frozen,
+
+      const db = await this.openDatabase();
+      return new Promise<StubResolutionRecord>((resolve, reject) => {
+        const tx = db.transaction(this.storeName, 'readwrite');
+        const store = tx.objectStore(this.storeName);
+        const getReq = store.get(stubId);
+        let settledResolution: StubResolutionRecord | null = null;
+        let missingError: Error | null = null;
+
+        getReq.onsuccess = () => {
+          const existing = getReq.result as StoredStubRecord | undefined;
+          if (!existing) {
+            missingError = new Error(
+              `BankedStub "${stubId}" not found in IndexedDbStubAdapter.`
+            );
+            return;
+          }
+          if (existing.status === 'resolved' && existing.resolution) {
+            settledResolution = { ...existing.resolution };
+            return;
+          }
+          const frozen = { ...resolution };
+          settledResolution = { ...frozen };
+          store.put({
+            ...existing,
+            status: 'resolved',
+            resolution: frozen,
+          } satisfies StoredStubRecord);
+        };
+
+        tx.oncomplete = () => {
+          if (missingError) {
+            reject(missingError);
+          } else if (settledResolution) {
+            resolve(settledResolution);
+          } else {
+            reject(new Error(`Failed to resolve BankedStub "${stubId}".`));
+          }
+        };
+        tx.onerror = () => reject(tx.error);
       });
-      return { ...frozen };
-    }
-
-    const existing = await this.getStub(stubId);
-    if (!existing) {
-      throw new Error(`BankedStub "${stubId}" not found in IndexedDbStubAdapter.`);
-    }
-    if (existing.status === 'resolved' && existing.resolution) {
-      return { ...existing.resolution };
-    }
-
-    const frozen = { ...resolution };
-    const db = await this.openDatabase();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(this.storeName, 'readwrite');
-      const store = tx.objectStore(this.storeName);
-      store.put({
-        ...existing,
-        status: 'resolved',
-        resolution: frozen,
-      } satisfies StoredStubRecord);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
     });
-
-    return { ...frozen };
   }
 
   async purgeExpired(nowIso?: string): Promise<number> {
-    const nowMs = nowIso ? Date.parse(nowIso) : Date.now();
-    if (!this.idbFactory) {
-      const vStore = this.getVirtualStore();
-      let count = 0;
-      for (const [id, rec] of vStore.entries()) {
-        if (
-          rec.status !== 'resolved' &&
-          isExpired(rec.stub.expiresAt, nowMs)
-        ) {
-          vStore.delete(id);
-          count++;
+    return this.runExclusive(async () => {
+      const nowMs = nowIso ? Date.parse(nowIso) : Date.now();
+      if (!this.idbFactory) {
+        const vStore = this.getVirtualStore();
+        let count = 0;
+        for (const [id, rec] of vStore.entries()) {
+          if (
+            rec.status !== 'resolved' &&
+            isStubExpired(rec.stub.expiresAt, nowMs)
+          ) {
+            vStore.delete(id);
+            count++;
+          }
         }
+        return count;
       }
-      return count;
-    }
 
-    const all = await this.getAllRecords();
-    const expiredIds = all
-      .filter(
-        (rec) =>
-          rec.status !== 'resolved' && isExpired(rec.stub.expiresAt, nowMs)
-      )
-      .map((rec) => rec.stub.stubId);
+      const all = await this.getAllRecords();
+      const expiredIds = all
+        .filter(
+          (rec) =>
+            rec.status !== 'resolved' &&
+            isStubExpired(rec.stub.expiresAt, nowMs)
+        )
+        .map((rec) => rec.stub.stubId);
 
-    if (expiredIds.length === 0) return 0;
+      if (expiredIds.length === 0) return 0;
 
-    const db = await this.openDatabase();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(this.storeName, 'readwrite');
-      const store = tx.objectStore(this.storeName);
-      for (const id of expiredIds) {
-        store.delete(id);
-      }
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
+      const db = await this.openDatabase();
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(this.storeName, 'readwrite');
+        const store = tx.objectStore(this.storeName);
+        for (const id of expiredIds) {
+          store.delete(id);
+        }
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+
+      return expiredIds.length;
     });
-
-    return expiredIds.length;
   }
 }
 
@@ -384,15 +466,27 @@ interface SqliteStubRow {
 
 /**
  * Expo SQLite / generic SQLite storage adapter implementing `IStubStorageAdapter`.
+ * Enforces conditional atomic updates (`WHERE stub_id = ? AND status != 'resolved'`)
+ * and serialized write locks so concurrent claims never overwrite the original receipt.
  */
 export class ExpoSqliteStubAdapter implements IStubStorageAdapter {
   private readonly db: ISqliteExecutor;
   private readonly tableName: string;
   private initialized = false;
+  private lockTail: Promise<unknown> = Promise.resolve();
 
   constructor(db: ISqliteExecutor, tableName: string = 'reels_stub_vault') {
     this.db = db;
     this.tableName = tableName;
+  }
+
+  private runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.lockTail.then(fn, fn);
+    this.lockTail = next.then(
+      () => undefined,
+      () => undefined
+    );
+    return next;
   }
 
   private async ensureInitialized(): Promise<void> {
@@ -413,27 +507,30 @@ export class ExpoSqliteStubAdapter implements IStubStorageAdapter {
   }
 
   async putStub(stub: BankedStub): Promise<void> {
-    await this.ensureInitialized();
-    const existing = await this.getStub(stub.stubId);
-    if (existing && existing.status === 'resolved') return;
+    return this.runExclusive(async () => {
+      await this.ensureInitialized();
+      const existing = await this.getStubInternal(stub.stubId);
+      if (existing && existing.status === 'resolved') return;
 
-    await this.db.runAsync(
-      `INSERT OR REPLACE INTO ${this.tableName}
-       (stub_id, match_id, cartridge_id, roll_index, sealed_payload, expires_at, status, resolution_json)
-       VALUES (?, ?, ?, ?, ?, ?, 'active', NULL);`,
-      [
-        stub.stubId,
-        stub.matchId,
-        stub.cartridgeId,
-        stub.rollIndex,
-        stub.sealedPayload,
-        stub.expiresAt,
-      ]
-    );
+      await this.db.runAsync(
+        `INSERT OR REPLACE INTO ${this.tableName}
+         (stub_id, match_id, cartridge_id, roll_index, sealed_payload, expires_at, status, resolution_json)
+         VALUES (?, ?, ?, ?, ?, ?, 'active', NULL);`,
+        [
+          stub.stubId,
+          stub.matchId,
+          stub.cartridgeId,
+          stub.rollIndex,
+          stub.sealedPayload,
+          stub.expiresAt,
+        ]
+      );
+    });
   }
 
-  async getStub(stubId: string): Promise<StoredStubRecord | null> {
-    await this.ensureInitialized();
+  private async getStubInternal(
+    stubId: string
+  ): Promise<StoredStubRecord | null> {
     const row = await this.db.getFirstAsync<SqliteStubRow>(
       `SELECT * FROM ${this.tableName} WHERE stub_id = ?;`,
       [stubId]
@@ -455,6 +552,11 @@ export class ExpoSqliteStubAdapter implements IStubStorageAdapter {
     };
   }
 
+  async getStub(stubId: string): Promise<StoredStubRecord | null> {
+    await this.ensureInitialized();
+    return this.getStubInternal(stubId);
+  }
+
   async listActiveStubs(nowIso?: string): Promise<BankedStub[]> {
     await this.ensureInitialized();
     const nowMs = nowIso ? Date.parse(nowIso) : Date.now();
@@ -462,7 +564,7 @@ export class ExpoSqliteStubAdapter implements IStubStorageAdapter {
       `SELECT * FROM ${this.tableName} WHERE status = 'active' ORDER BY roll_index ASC;`
     );
     return rows
-      .filter((row) => !isExpired(row.expires_at, nowMs))
+      .filter((row) => !isStubExpired(row.expires_at, nowMs))
       .map((row) => ({
         stubId: row.stub_id,
         matchId: row.match_id,
@@ -477,40 +579,51 @@ export class ExpoSqliteStubAdapter implements IStubStorageAdapter {
     stubId: string,
     resolution: StubResolutionRecord
   ): Promise<StubResolutionRecord> {
-    await this.ensureInitialized();
-    const existing = await this.getStub(stubId);
-    if (!existing) {
-      throw new Error(`BankedStub "${stubId}" not found in ExpoSqliteStubAdapter.`);
-    }
-    if (existing.status === 'resolved' && existing.resolution) {
-      return { ...existing.resolution };
-    }
+    return this.runExclusive(async () => {
+      await this.ensureInitialized();
+      const existing = await this.getStubInternal(stubId);
+      if (!existing) {
+        throw new Error(
+          `BankedStub "${stubId}" not found in ExpoSqliteStubAdapter.`
+        );
+      }
+      if (existing.status === 'resolved' && existing.resolution) {
+        return { ...existing.resolution };
+      }
 
-    const frozen = { ...resolution };
-    await this.db.runAsync(
-      `UPDATE ${this.tableName} SET status = 'resolved', resolution_json = ? WHERE stub_id = ?;`,
-      [JSON.stringify(frozen), stubId]
-    );
-    return { ...frozen };
+      const frozen = { ...resolution };
+      await this.db.runAsync(
+        `UPDATE ${this.tableName} SET status = 'resolved', resolution_json = ? WHERE stub_id = ? AND status != 'resolved';`,
+        [JSON.stringify(frozen), stubId]
+      );
+
+      const postUpdate = await this.getStubInternal(stubId);
+      if (postUpdate?.resolution) {
+        return { ...postUpdate.resolution };
+      }
+      return { ...frozen };
+    });
   }
 
   async purgeExpired(nowIso?: string): Promise<number> {
-    await this.ensureInitialized();
-    const nowMs = nowIso ? Date.parse(nowIso) : Date.now();
-    const rows = await this.db.getAllAsync<SqliteStubRow>(
-      `SELECT * FROM ${this.tableName} WHERE status != 'resolved';`
-    );
-    let purged = 0;
-    for (const row of rows) {
-      if (isExpired(row.expires_at, nowMs)) {
-        await this.db.runAsync(
-          `DELETE FROM ${this.tableName} WHERE stub_id = ?;`,
-          [row.stub_id]
-        );
-        purged++;
+    return this.runExclusive(async () => {
+      await this.ensureInitialized();
+      const nowMs = nowIso ? Date.parse(nowIso) : Date.now();
+      const rows = await this.db.getAllAsync<SqliteStubRow>(
+        `SELECT * FROM ${this.tableName} WHERE status != 'resolved';`
+      );
+      let purged = 0;
+      for (const row of rows) {
+        if (isStubExpired(row.expires_at, nowMs)) {
+          await this.db.runAsync(
+            `DELETE FROM ${this.tableName} WHERE stub_id = ?;`,
+            [row.stub_id]
+          );
+          purged++;
+        }
       }
-    }
-    return purged;
+      return purged;
+    });
   }
 }
 

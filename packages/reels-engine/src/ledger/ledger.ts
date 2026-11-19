@@ -8,6 +8,7 @@ import type {
 import { sha256HexSync } from '../prng';
 
 export const MIRACLE_WIN_PROBABILITY_THRESHOLD = 0.12;
+export const SMUGGLER_MIRACLE_SCORE_THRESHOLD = 1000;
 
 export interface MatchLedgerContext {
   matchId: string;
@@ -76,7 +77,8 @@ export function detectMiracleSeedCandidate(
 
 /**
  * Creates a playable `MiracleSeedSnapshot` from a match trajectory and `MiracleSeedCandidate`
- * so other players can load the exact checkpoint board state and attempt to beat `targetScoreToBeat`.
+ * so other players can load the exact checkpoint board state and deterministically reproduce
+ * subsequent rolls using `(rootSeed, matchId, rollIndex)`.
  */
 export function createMiracleSeedSnapshot(
   candidate: MiracleSeedCandidate,
@@ -96,6 +98,7 @@ export function createMiracleSeedSnapshot(
       };
 
   return {
+    matchId: candidate.matchId,
     rootSeed: candidate.rootSeed,
     cartridgeId: candidate.cartridgeId,
     checkpointRollIndex: candidate.checkpointRollIndex,
@@ -115,7 +118,7 @@ export function serializeMiracleSeedSnapshot(
 
 /**
  * Deserializes and validates a `MiracleSeedSnapshot` JSON payload, reproducing
- * the exact checkpoint board state.
+ * the exact checkpoint board state and source `matchId` needed for deterministic roll derivation.
  */
 export function deserializeMiracleSeedSnapshot(
   payload: string
@@ -124,6 +127,7 @@ export function deserializeMiracleSeedSnapshot(
   if (
     typeof parsed !== 'object' ||
     parsed === null ||
+    typeof parsed.matchId !== 'string' ||
     typeof parsed.rootSeed !== 'string' ||
     typeof parsed.cartridgeId !== 'string' ||
     typeof parsed.checkpointRollIndex !== 'number' ||
@@ -135,6 +139,7 @@ export function deserializeMiracleSeedSnapshot(
   }
 
   return {
+    matchId: parsed.matchId,
     rootSeed: parsed.rootSeed,
     cartridgeId: parsed.cartridgeId,
     checkpointRollIndex: parsed.checkpointRollIndex,
@@ -175,7 +180,7 @@ function buildLedgerEntry(
  *   and winning the match.
  * - `SECOND_WIND`: Winning a match after dropping below `<12%` (`0.12`) win probability.
  * - `SMUGGLER_KING`: Winning a match after successfully carrying contraband (`contrabandHoldCount >= 3`)
- *   or resolving a `tier3_miracle` sub-seed on a high-score haul.
+ *   or resolving a `tier3_miracle` sub-seed on a high-score haul (`score >= 1000`).
  * - `GHOST_SHIP`: Winning or surviving a step at critical hull integrity (`0 < hullIntegrity <= 5`).
  * - `AGAINST_ALL_ODDS`: Winning a match after dropping below `<5%` (`0.05`) win probability.
  */
@@ -242,35 +247,52 @@ export function evaluateCastLedgerBadges(
     );
   }
 
-  // 4. SMUGGLER_KING: Contraband hold >= 3 in a victorious match
-  const smugglerStep = steps.find((s) => (s.contrabandHoldCount ?? 0) >= 3);
+  // 4. SMUGGLER_KING: Contraband hold >= 3 OR tier3_miracle on high-score haul (>= 1000) in a victorious match
+  const smugglerStep = steps.find(
+    (s) =>
+      (s.contrabandHoldCount ?? 0) >= 3 ||
+      (s.selectedTier === 'tier3_miracle' &&
+        s.score >= SMUGGLER_MIRACLE_SCORE_THRESHOLD)
+  );
   if (didWin && smugglerStep) {
+    const summary =
+      (smugglerStep.contrabandHoldCount ?? 0) >= 3
+        ? `Cleared customs with ${smugglerStep.contrabandHoldCount} contraband holds intact.`
+        : `Pulled off a miracle-tier smuggler haul (${smugglerStep.score} score).`;
     entries.push(
       buildLedgerEntry(
         context,
         'SMUGGLER_KING',
         smugglerStep.rollIndex,
-        `Cleared customs with ${smugglerStep.contrabandHoldCount} contraband holds intact.`
+        summary
       )
     );
   }
 
-  // 5. GHOST_SHIP: Victory after surviving critical hull integrity (<= 5%)
-  const ghostStep = steps.find(
+  // 5. GHOST_SHIP: Winning or surviving a step at critical hull integrity (0 < hullIntegrity <= 5)
+  const ghostStepIdx = steps.findIndex(
     (s) =>
       typeof s.hullIntegrity === 'number' &&
       s.hullIntegrity > 0 &&
       s.hullIntegrity <= 5
   );
-  if (didWin && ghostStep) {
-    entries.push(
-      buildLedgerEntry(
-        context,
-        'GHOST_SHIP',
-        ghostStep.rollIndex,
-        `Limped across the finish line at ${ghostStep.hullIntegrity}% hull integrity.`
-      )
-    );
+  if (ghostStepIdx !== -1) {
+    const ghostStep = steps[ghostStepIdx];
+    const survivedStep =
+      didWin ||
+      steps
+        .slice(ghostStepIdx + 1)
+        .some((s) => (s.hullIntegrity ?? ghostStep.hullIntegrity ?? 1) > 0);
+    if (survivedStep) {
+      entries.push(
+        buildLedgerEntry(
+          context,
+          'GHOST_SHIP',
+          ghostStep.rollIndex,
+          `Survived critical damage at ${ghostStep.hullIntegrity}% hull integrity.`
+        )
+      );
+    }
   }
 
   // 6. AGAINST_ALL_ODDS: Victory after dropping below 5% win probability

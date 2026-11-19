@@ -12,15 +12,19 @@ import { StubVault } from '../vault';
 
 export const CHAPTER_BOUNDARY_REACHED = 'CHAPTER_BOUNDARY_REACHED' as const;
 
+export type ChapterCompleteErrorCode =
+  | 'CHAPTER_COMPLETE'
+  | 'COOLDOWN_ACTIVE'
+  | 'DAILY_CAP_REACHED'
+  | 'FLUSH_PENDING';
+
 /**
  * Thrown when a caller attempts to pull another roll after reaching `pullsPerChapter`
- * (or during an active cooldown / daily chapter cap) before acknowledging the chapter boundary.
+ * (or during an active cooldown / daily chapter cap / pending storage flush)
+ * before acknowledging the chapter boundary.
  */
 export class ChapterCompleteError extends Error {
-  readonly code:
-    | 'CHAPTER_COMPLETE'
-    | 'COOLDOWN_ACTIVE'
-    | 'DAILY_CAP_REACHED';
+  readonly code: ChapterCompleteErrorCode;
   readonly chapterIndex: number;
   readonly pullsPerChapter: number;
   readonly cooldownRemainingMs: number;
@@ -28,7 +32,7 @@ export class ChapterCompleteError extends Error {
   constructor(
     message: string,
     details: {
-      code?: 'CHAPTER_COMPLETE' | 'COOLDOWN_ACTIVE' | 'DAILY_CAP_REACHED';
+      code?: ChapterCompleteErrorCode;
       chapterIndex: number;
       pullsPerChapter: number;
       cooldownRemainingMs?: number;
@@ -80,7 +84,7 @@ export interface ChapterSessionConfig {
   rootSeed: string;
   /** Number of pulls per chapter (default: 15). */
   pullsPerChapter?: number;
-  /** Boundary enforcement mode forwarded to @digitalcanopy/cadence (`soft_prompt` | `hard_cooldown`). */
+  /** Boundary enforcement mode forwarded to @digitalcanopy/cadence (`soft_prompt` | `hard_cooldown` | `disabled`). */
   boundaryMode?: BoundaryPolicy;
   /** Optional cooldown duration in minutes between chapters (default: 0). */
   cooldownMinutes?: number;
@@ -92,6 +96,16 @@ export interface ChapterSessionConfig {
   initialRollIndex?: number;
   /** High-stakes trigger probability threshold for generated rolls (default: 0.25). */
   highStakesThreshold?: number;
+}
+
+export interface PullRollOptions {
+  /**Timestamp override in epoch milliseconds (default: `Date.now()`). */
+  now?: number;
+  /**
+   * When true, marks the pulled roll as immediately played by the caller so a
+   * high-stakes boundary roll is not auto-vaulted as an unplayed bonus stub.
+   */
+  markRollAsPlayed?: boolean;
 }
 
 export interface PullRollResult {
@@ -126,9 +140,13 @@ export class ChapterSessionController {
   private nextRollIndex: number;
   private chapterPulls: DeterministicRoll[] = [];
   private playedHighStakesIndices = new Set<number>();
+  private vaultedStubsByRollIndex = new Map<number, BankedStub>();
+  private pendingBoundaryFlush = false;
+  private lastBoundaryRoll: DeterministicRoll | null = null;
   private lastSalvageSummary: ChapterSalvageSummary | null = null;
   private listeners = new Set<ChapterEventListener>();
   private dailyChaptersCompletedByDay = new Map<string, number>();
+  private pullQueue: Promise<unknown> = Promise.resolve();
 
   constructor(config: ChapterSessionConfig, now: number = Date.now()) {
     this.matchId = config.matchId;
@@ -171,6 +189,15 @@ export class ChapterSessionController {
     );
   }
 
+  private runSerialized<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.pullQueue.then(fn, fn);
+    this.pullQueue = next.then(
+      () => undefined,
+      () => undefined
+    );
+    return next;
+  }
+
   /**
    * Subscribes to `CHAPTER_BOUNDARY_REACHED` events. Returns an unsubscribe function.
    */
@@ -187,6 +214,7 @@ export class ChapterSessionController {
    */
   markHighStakesRollPlayed(rollIndex: number): void {
     this.playedHighStakesIndices.add(rollIndex);
+    this.vaultedStubsByRollIndex.delete(rollIndex);
   }
 
   /**
@@ -214,6 +242,9 @@ export class ChapterSessionController {
   }
 
   getPullsRemaining(): number {
+    if (this.cadenceState.config.mode === 'disabled') {
+      return Number.POSITIVE_INFINITY;
+    }
     return Math.max(0, this.pullsPerChapter - this.cadenceState.unitsConsumed);
   }
 
@@ -222,7 +253,11 @@ export class ChapterSessionController {
   }
 
   isChapterComplete(): boolean {
-    return this.cadenceState.isChapterComplete;
+    return this.cadenceState.isChapterComplete && !this.pendingBoundaryFlush;
+  }
+
+  hasPendingBoundaryFlush(): boolean {
+    return this.pendingBoundaryFlush;
   }
 
   getCooldownRemainingMs(now: number = Date.now()): number {
@@ -238,87 +273,50 @@ export class ChapterSessionController {
   }
 
   /**
-   * Executes a single deterministic roll pull within the bounded chapter.
-   *
-   * - Throws `ChapterCompleteError` if the current chapter has already reached `pullsPerChapter`,
-   *   if a cooldown timer is active, or if the user's `dailyChapterCap` has been reached.
-   * - When `pullsRemaining === 0` after the pull, emits `CHAPTER_BOUNDARY_REACHED`,
-   *   flushes any unplayed high-stakes triggers to `StubVault`, and returns the chapter salvage summary.
+   * Retries or completes flushing unplayed high-stakes triggers to `StubVault` for
+   * a chapter that has reached its pull limit, emitting `CHAPTER_BOUNDARY_REACHED`
+   * and incrementing the daily chapter count exactly once when all writes succeed.
    */
-  async pullNextRoll(now: number = Date.now()): Promise<PullRollResult> {
-    if (this.dailyChapterCap !== null) {
-      const completedToday = this.getChaptersCompletedToday(now);
-      if (completedToday >= this.dailyChapterCap) {
-        throw new ChapterCompleteError(
-          `Daily chapter cap of ${this.dailyChapterCap} reached for today.`,
-          {
-            code: 'DAILY_CAP_REACHED',
-            chapterIndex: this.cadenceState.chapterIndex,
-            pullsPerChapter: this.pullsPerChapter,
-          }
+  async flushPendingChapterBoundary(
+    now: number = Date.now()
+  ): Promise<PullRollResult> {
+    return this.runSerialized(async () => {
+      if (!this.pendingBoundaryFlush || !this.lastBoundaryRoll) {
+        throw new Error(
+          'No pending chapter boundary flush is awaiting completion.'
         );
       }
-    }
-
-    if (this.cadenceState.isChapterComplete || this.getPullsRemaining() === 0) {
-      const cooldownMs = this.getCooldownRemainingMs(now);
-      throw new ChapterCompleteError(
-        `Chapter ${this.cadenceState.chapterIndex} is complete (${this.pullsPerChapter}/${this.pullsPerChapter} pulls). Acknowledge chapter boundary before pulling again.`,
-        {
-          code: cooldownMs > 0 ? 'COOLDOWN_ACTIVE' : 'CHAPTER_COMPLETE',
-          chapterIndex: this.cadenceState.chapterIndex,
-          pullsPerChapter: this.pullsPerChapter,
-          cooldownRemainingMs: cooldownMs,
-        }
-      );
-    }
-
-    const rollIndex = this.nextRollIndex++;
-    const roll = await generateDeterministicRoll(
-      this.rootSeed,
-      this.matchId,
-      rollIndex,
-      { highStakesThreshold: this.highStakesThreshold }
-    );
-    this.chapterPulls.push(roll);
-
-    this.cadenceState = cadenceReducer(this.cadenceState, {
-      type: 'CONSUME_UNIT',
-      amount: 1,
-      now,
+      return this.finalizeChapterBoundaryInternal(this.lastBoundaryRoll, now);
     });
+  }
 
+  private async finalizeChapterBoundaryInternal(
+    boundaryRoll: DeterministicRoll,
+    now: number
+  ): Promise<PullRollResult> {
     const pullsConsumed = this.cadenceState.unitsConsumed;
-    const pullsRemaining = Math.max(0, this.pullsPerChapter - pullsConsumed);
-    const isBoundary =
-      pullsRemaining === 0 || this.cadenceState.isChapterComplete;
-
-    if (!isBoundary) {
-      return {
-        roll,
-        chapterIndex: this.cadenceState.chapterIndex,
-        pullsConsumed,
-        pullsRemaining,
-        isChapterBoundaryReached: false,
-      };
-    }
-
-    // Flush unplayed high-stakes triggers to StubVault
     const unplayedHighStakes = this.chapterPulls.filter(
       (r) => r.isHighStakes && !this.playedHighStakesIndices.has(r.index)
     );
-    const autoVaultedStubs: BankedStub[] = [];
 
     if (this.stubVault) {
       for (const highStakesRoll of unplayedHighStakes) {
+        if (this.vaultedStubsByRollIndex.has(highStakesRoll.index)) {
+          continue;
+        }
         const stub = await this.stubVault.bankRollStub({
+          stubId: `stub:${this.matchId}:${this.cartridgeId}:${highStakesRoll.index}`,
           matchId: this.matchId,
           cartridgeId: this.cartridgeId,
           roll: highStakesRoll,
         });
-        autoVaultedStubs.push(stub);
+        this.vaultedStubsByRollIndex.set(highStakesRoll.index, stub);
       }
     }
+
+    const autoVaultedStubs = unplayedHighStakes
+      .map((r) => this.vaultedStubsByRollIndex.get(r.index))
+      .filter((s): s is BankedStub => Boolean(s));
 
     const totalHighStakes = this.chapterPulls.filter(
       (r) => r.isHighStakes
@@ -338,6 +336,7 @@ export class ChapterSessionController {
       cooldownUntil: this.cadenceState.cooldownUntil,
     };
 
+    this.pendingBoundaryFlush = false;
     this.lastSalvageSummary = salvageSummary;
 
     const dayKey = getUtcDayKey(now);
@@ -360,7 +359,7 @@ export class ChapterSessionController {
     }
 
     return {
-      roll,
+      roll: boundaryRoll,
       chapterIndex: this.cadenceState.chapterIndex,
       pullsConsumed,
       pullsRemaining: 0,
@@ -371,10 +370,136 @@ export class ChapterSessionController {
   }
 
   /**
+   * Executes a single deterministic roll pull within the bounded chapter.
+   *
+   * - Serializes concurrent calls so overlapping `pullNextRoll` invocations cannot overrun
+   *   `pullsPerChapter` or duplicate chapter boundary finalization.
+   * - If a previous boundary flush failed midway due to a transient storage error,
+   *   calling `pullNextRoll` retries the pending boundary flush without generating an extra roll.
+   * - Throws `ChapterCompleteError` if the current chapter has already completed its flush,
+   *   if a cooldown timer is active, or if the user's `dailyChapterCap` has been reached.
+   */
+  async pullNextRoll(
+    nowOrOptions: number | PullRollOptions = Date.now()
+  ): Promise<PullRollResult> {
+    const now =
+      typeof nowOrOptions === 'number'
+        ? nowOrOptions
+        : (nowOrOptions.now ?? Date.now());
+    const markRollAsPlayed =
+      typeof nowOrOptions === 'object' &&
+      nowOrOptions !== null &&
+      nowOrOptions.markRollAsPlayed === true;
+
+    return this.runSerialized(async () => {
+      if (this.pendingBoundaryFlush && this.lastBoundaryRoll) {
+        if (markRollAsPlayed) {
+          this.markHighStakesRollPlayed(this.lastBoundaryRoll.index);
+        }
+        return this.finalizeChapterBoundaryInternal(this.lastBoundaryRoll, now);
+      }
+
+      const isDisabled = this.cadenceState.config.mode === 'disabled';
+
+      if (!isDisabled && this.dailyChapterCap !== null) {
+        const completedToday = this.getChaptersCompletedToday(now);
+        if (completedToday >= this.dailyChapterCap) {
+          throw new ChapterCompleteError(
+            `Daily chapter cap of ${this.dailyChapterCap} reached for today.`,
+            {
+              code: 'DAILY_CAP_REACHED',
+              chapterIndex: this.cadenceState.chapterIndex,
+              pullsPerChapter: this.pullsPerChapter,
+            }
+          );
+        }
+      }
+
+      if (
+        !isDisabled &&
+        (this.cadenceState.isChapterComplete ||
+          this.cadenceState.unitsConsumed >= this.pullsPerChapter)
+      ) {
+        const cooldownMs = this.getCooldownRemainingMs(now);
+        throw new ChapterCompleteError(
+          `Chapter ${this.cadenceState.chapterIndex} is complete (${this.pullsPerChapter}/${this.pullsPerChapter} pulls). Acknowledge chapter boundary before pulling again.`,
+          {
+            code: cooldownMs > 0 ? 'COOLDOWN_ACTIVE' : 'CHAPTER_COMPLETE',
+            chapterIndex: this.cadenceState.chapterIndex,
+            pullsPerChapter: this.pullsPerChapter,
+            cooldownRemainingMs: cooldownMs,
+          }
+        );
+      }
+
+      const rollIndex = this.nextRollIndex++;
+      const roll = await generateDeterministicRoll(
+        this.rootSeed,
+        this.matchId,
+        rollIndex,
+        { highStakesThreshold: this.highStakesThreshold }
+      );
+      this.chapterPulls.push(roll);
+
+      if (markRollAsPlayed && roll.isHighStakes) {
+        this.playedHighStakesIndices.add(roll.index);
+      }
+
+      this.cadenceState = cadenceReducer(this.cadenceState, {
+        type: 'CONSUME_UNIT',
+        amount: 1,
+        now,
+      });
+
+      const pullsConsumed = this.cadenceState.unitsConsumed;
+
+      if (isDisabled) {
+        return {
+          roll,
+          chapterIndex: this.cadenceState.chapterIndex,
+          pullsConsumed,
+          pullsRemaining: Number.POSITIVE_INFINITY,
+          isChapterBoundaryReached: false,
+        };
+      }
+
+      const pullsRemaining = Math.max(0, this.pullsPerChapter - pullsConsumed);
+      const isBoundary =
+        pullsRemaining === 0 || this.cadenceState.isChapterComplete;
+
+      if (!isBoundary) {
+        return {
+          roll,
+          chapterIndex: this.cadenceState.chapterIndex,
+          pullsConsumed,
+          pullsRemaining,
+          isChapterBoundaryReached: false,
+        };
+      }
+
+      this.pendingBoundaryFlush = true;
+      this.lastBoundaryRoll = roll;
+      return this.finalizeChapterBoundaryInternal(roll, now);
+    });
+  }
+
+  /**
    * Explicitly acknowledges the completed chapter off-ramp and advances to the next chapter.
-   * Throws `ChapterCompleteError` if a hard cooldown window is still active or if the daily cap is reached.
+   * Throws `ChapterCompleteError` if a boundary storage flush is still pending, if a hard cooldown
+   * window is active, or if the daily cap is reached.
    */
   acknowledgeNewChapter(now: number = Date.now()): CadenceSessionState {
+    if (this.pendingBoundaryFlush) {
+      throw new ChapterCompleteError(
+        `Cannot acknowledge chapter ${this.cadenceState.chapterIndex} while unplayed bonus stubs are pending storage flush.`,
+        {
+          code: 'FLUSH_PENDING',
+          chapterIndex: this.cadenceState.chapterIndex,
+          pullsPerChapter: this.pullsPerChapter,
+        }
+      );
+    }
+
     if (!this.cadenceState.isChapterComplete) {
       return this.cadenceState;
     }
@@ -415,6 +540,8 @@ export class ChapterSessionController {
     });
     this.chapterPulls = [];
     this.playedHighStakesIndices.clear();
+    this.vaultedStubsByRollIndex.clear();
+    this.lastBoundaryRoll = null;
     return this.cadenceState;
   }
 }

@@ -5,8 +5,12 @@ import type {
   StubResolutionRecord,
 } from '../types';
 import { resolveBlindCheckSubSeed, sha256Hex } from '../prng';
-import { sealStubRollPayload, unsealStubRollPayload } from './crypto';
-import type { IStubStorageAdapter } from './adapters';
+import {
+  getDefaultEphemeralVaultSecret,
+  sealStubRollPayload,
+  unsealStubRollPayload,
+} from './crypto';
+import { isStubExpired, type IStubStorageAdapter } from './adapters';
 
 export * from './crypto';
 export * from './adapters';
@@ -30,10 +34,16 @@ export interface StubVaultOptions {
 export class StubVault {
   private readonly adapter: IStubStorageAdapter;
   private readonly vaultSecret: string;
+  private readonly resolutionCache = new Map<string, StubResolutionRecord>();
+  private readonly inflightResolutions = new Map<
+    string,
+    Promise<StubResolutionRecord>
+  >();
 
   constructor(adapter: IStubStorageAdapter, options?: StubVaultOptions) {
     this.adapter = adapter;
-    this.vaultSecret = options?.vaultSecret ?? 'sunshade-local-stub-vault-v1';
+    this.vaultSecret =
+      options?.vaultSecret ?? getDefaultEphemeralVaultSecret();
   }
 
   getStorageAdapter(): IStubStorageAdapter {
@@ -79,22 +89,57 @@ export class StubVault {
     submission?: BlindSkillSubmission,
     resolvedAt: string = new Date().toISOString()
   ): Promise<StubResolutionRecord> {
+    const existingInflight = this.inflightResolutions.get(stubId);
+    if (existingInflight) {
+      return existingInflight;
+    }
+
+    const task = this.executeResolveStub(stubId, submission, resolvedAt).finally(
+      () => {
+        this.inflightResolutions.delete(stubId);
+      }
+    );
+
+    this.inflightResolutions.set(stubId, task);
+    return task;
+  }
+
+  private async executeResolveStub(
+    stubId: string,
+    submission?: BlindSkillSubmission,
+    resolvedAt: string = new Date().toISOString()
+  ): Promise<StubResolutionRecord> {
     const existing = this.adapter.getStub
       ? await this.adapter.getStub(stubId)
       : null;
 
     if (existing && existing.status === 'resolved' && existing.resolution) {
-      return existing.resolution;
+      this.resolutionCache.set(stubId, { ...existing.resolution });
+      return { ...existing.resolution };
     }
+
+    const cachedReceipt = this.resolutionCache.get(stubId);
+    if (cachedReceipt) {
+      return { ...cachedReceipt };
+    }
+
+    const nowMs = Date.parse(resolvedAt);
+    const effectiveNowMs = Number.isNaN(nowMs) ? Date.now() : nowMs;
 
     let targetStub = existing?.stub;
     if (!targetStub) {
-      const active = await this.adapter.listActiveStubs();
+      const active = await this.adapter.listActiveStubs(resolvedAt);
       targetStub = active.find((s) => s.stubId === stubId);
     }
 
     if (!targetStub) {
       throw new Error(`BankedStub "${stubId}" not found.`);
+    }
+
+    if (isStubExpired(targetStub.expiresAt, effectiveNowMs)) {
+      throw new Error(
+        `BankedStub "${stubId}" has expired (${targetStub.expiresAt}) and cannot be claimed.`
+      );
     }
 
     const roll = await unsealStubRollPayload(
@@ -131,6 +176,8 @@ export class StubVault {
       submission: effectiveSubmission,
     };
 
-    return this.adapter.markStubResolved(stubId, resolution);
+    const saved = await this.adapter.markStubResolved(stubId, resolution);
+    this.resolutionCache.set(stubId, { ...saved });
+    return { ...saved };
   }
 }

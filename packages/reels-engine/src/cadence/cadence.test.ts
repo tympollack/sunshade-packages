@@ -17,7 +17,7 @@ describe('@digitalcanopy/reels-engine Cadence Bounded Session Chapters & Auto-Va
       cartridgeId: 'sector-smuggler',
       rootSeed: 'cadence-seed-alpha',
       stubVault,
-      highStakesThreshold: 0.5, // ensure multiple high-stakes rolls occur
+      highStakesThreshold: 0.5,
     });
 
     expect(controller.getPullsPerChapter()).toBe(15);
@@ -29,11 +29,14 @@ describe('@digitalcanopy/reels-engine Cadence Bounded Session Chapters & Auto-Va
     let playedHighStakesCount = 0;
 
     for (let i = 0; i < 15; i++) {
-      const res = await controller.pullNextRoll(1_700_000_000_000 + i * 1000);
+      const res = await controller.pullNextRoll({
+        now: 1_700_000_000_000 + i * 1000,
+        markRollAsPlayed: i === 0,
+      });
 
-      // Simulate the player actively playing the very first high-stakes trigger,
-      // while leaving subsequent high-stakes triggers unplayed so they auto-vault.
-      if (res.roll.isHighStakes && playedHighStakesCount === 0) {
+      if (res.roll.isHighStakes && i === 0) {
+        playedHighStakesCount++;
+      } else if (res.roll.isHighStakes && playedHighStakesCount === 0 && i < 14) {
         controller.markHighStakesRollPlayed(res.roll.index);
         playedHighStakesCount++;
       }
@@ -75,6 +78,144 @@ describe('@digitalcanopy/reels-engine Cadence Bounded Session Chapters & Auto-Va
     expect(nextChapterPull.pullsRemaining).toBe(14);
   });
 
+  it('does not bank a high-stakes boundary roll when markRollAsPlayed is true', async () => {
+    const stubVault = new StubVault(new MemoryStubAdapter());
+    const controller = new ChapterSessionController({
+      matchId: 'match-boundary-played',
+      cartridgeId: 'sector-smuggler',
+      rootSeed: 'seed-boundary-played',
+      pullsPerChapter: 1,
+      highStakesThreshold: 1,
+      stubVault,
+    });
+
+    const res = await controller.pullNextRoll({
+      now: 1_700_000_000_000,
+      markRollAsPlayed: true,
+    });
+    expect(res.roll.isHighStakes).toBe(true);
+    expect(res.isChapterBoundaryReached).toBe(true);
+    expect(res.salvageSummary?.autoVaultedStubs).toHaveLength(0);
+    expect(await stubVault.listActiveStubs()).toHaveLength(0);
+  });
+
+  it('retains pending bonuses and retries cleanly when storage fails on first or intermediate boundary writes', async () => {
+    const baseAdapter = new MemoryStubAdapter();
+    let callCount = 0;
+    let shouldFailOnCall: number | null = 1; // Fail on the very first write
+
+    const flakyAdapter = {
+      putStub: async (stub: Parameters<typeof baseAdapter.putStub>[0]) => {
+        callCount++;
+        if (shouldFailOnCall !== null && callCount === shouldFailOnCall) {
+          throw new Error('Transient disk write error');
+        }
+        return baseAdapter.putStub(stub);
+      },
+      listActiveStubs: (nowIso?: string) => baseAdapter.listActiveStubs(nowIso),
+      markStubResolved: (
+        id: string,
+        res: Parameters<typeof baseAdapter.markStubResolved>[1]
+      ) => baseAdapter.markStubResolved(id, res),
+      purgeExpired: (nowIso?: string) => baseAdapter.purgeExpired(nowIso),
+      getStub: (id: string) => baseAdapter.getStub(id),
+    };
+
+    const stubVault = new StubVault(flakyAdapter);
+    const controller = new ChapterSessionController({
+      matchId: 'match-flaky-flush',
+      cartridgeId: 'sector-smuggler',
+      rootSeed: 'flaky-seed',
+      pullsPerChapter: 3,
+      highStakesThreshold: 1, // All 3 pulls are high-stakes
+      stubVault,
+    });
+
+    const events: ChapterBoundaryReachedEvent[] = [];
+    controller.onChapterBoundaryReached((e) => events.push(e));
+
+    await controller.pullNextRoll(1000);
+    await controller.pullNextRoll(2000);
+
+    // 3rd pull hits boundary and fails on 1st write
+    await expect(controller.pullNextRoll(3000)).rejects.toThrow(
+      /Transient disk write error/
+    );
+    expect(controller.hasPendingBoundaryFlush()).toBe(true);
+    expect(events).toHaveLength(0);
+    expect(controller.getChaptersCompletedToday(3000)).toBe(0);
+
+    // Acknowledging while flush is pending throws FLUSH_PENDING
+    expect(() => controller.acknowledgeNewChapter(3500)).toThrowError(
+      ChapterCompleteError
+    );
+
+    // Next retry fails on the 2nd stub (intermediate write failure)
+    callCount = 0;
+    shouldFailOnCall = 2;
+    await expect(controller.pullNextRoll(4000)).rejects.toThrow(
+      /Transient disk write error/
+    );
+    expect(controller.hasPendingBoundaryFlush()).toBe(true);
+    expect(events).toHaveLength(0);
+
+    // Third retry succeeds and flushes the remaining 2 stubs without duplicating the 1st
+    shouldFailOnCall = null;
+    const recovered = await controller.pullNextRoll(5000);
+    expect(recovered.isChapterBoundaryReached).toBe(true);
+    expect(controller.hasPendingBoundaryFlush()).toBe(false);
+    expect(events).toHaveLength(1);
+    expect(controller.getChaptersCompletedToday(5000)).toBe(1);
+
+    const active = await stubVault.listActiveStubs();
+    expect(active).toHaveLength(3);
+    expect(active.map((s) => s.rollIndex)).toEqual([0, 1, 2]);
+  });
+
+  it('serializes concurrent pullNextRoll calls so overlapping pulls cannot overrun pullsPerChapter', async () => {
+    const controller = new ChapterSessionController({
+      matchId: 'match-concurrency',
+      cartridgeId: 'sector-smuggler',
+      rootSeed: 'concurrency-seed',
+      pullsPerChapter: 1,
+    });
+
+    const events: ChapterBoundaryReachedEvent[] = [];
+    controller.onChapterBoundaryReached((e) => events.push(e));
+
+    const results = await Promise.allSettled([
+      controller.pullNextRoll(1000),
+      controller.pullNextRoll(1000),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r) => r.status === 'rejected');
+
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(events).toHaveLength(1);
+    expect(controller.getChaptersCompletedToday(1000)).toBe(1);
+  });
+
+  it('supports boundaryMode: "disabled" without locking the session', async () => {
+    const controller = new ChapterSessionController({
+      matchId: 'match-disabled',
+      cartridgeId: 'sector-smuggler',
+      rootSeed: 'disabled-seed',
+      pullsPerChapter: 1,
+      boundaryMode: 'disabled',
+    });
+
+    const pull1 = await controller.pullNextRoll(1000);
+    const pull2 = await controller.pullNextRoll(2000);
+    const pull3 = await controller.pullNextRoll(3000);
+
+    expect(pull1.isChapterBoundaryReached).toBe(false);
+    expect(pull2.isChapterBoundaryReached).toBe(false);
+    expect(pull3.isChapterBoundaryReached).toBe(false);
+    expect(pull3.pullsConsumed).toBe(3);
+  });
+
   it('enforces optional cooldown timers between chapters', async () => {
     const startTime = 1_700_100_000_000;
     const controller = new ChapterSessionController(
@@ -97,12 +238,10 @@ describe('@digitalcanopy/reels-engine Cadence Bounded Session Chapters & Auto-Va
       10 * 60 * 1000
     );
 
-    // Attempting to acknowledge before 10-minute cooldown expires throws ChapterCompleteError
     expect(() =>
       controller.acknowledgeNewChapter(startTime + 3000 + 5 * 60 * 1000)
     ).toThrowError(ChapterCompleteError);
 
-    // After 10 minutes have elapsed, acknowledging the new chapter succeeds
     controller.acknowledgeNewChapter(startTime + 3000 + 10 * 60 * 1000);
     expect(controller.getChapterIndex()).toBe(1);
     expect(controller.getPullsRemaining()).toBe(3);
@@ -126,7 +265,6 @@ describe('@digitalcanopy/reels-engine Cadence Bounded Session Chapters & Auto-Va
     expect(lastPull.isChapterBoundaryReached).toBe(true);
     expect(controller.getChaptersCompletedToday(day1Time + 2000)).toBe(1);
 
-    // Cannot acknowledge or pull another chapter on the same UTC day
     expect(() =>
       controller.acknowledgeNewChapter(day1Time + 3000)
     ).toThrowError(ChapterCompleteError);
@@ -135,7 +273,6 @@ describe('@digitalcanopy/reels-engine Cadence Bounded Session Chapters & Auto-Va
       controller.pullNextRoll(day1Time + 4000)
     ).rejects.toThrowError(ChapterCompleteError);
 
-    // Next UTC day unlocks the daily chapter cap
     const day2Time = Date.parse('2026-11-20T09:00:00.000Z');
     const unsub = controller.onChapterBoundaryReached(vi.fn());
     unsub();

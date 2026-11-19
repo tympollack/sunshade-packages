@@ -400,14 +400,18 @@ export async function resolveBlindCheckSubSeed(
 }
 
 /**
- * Strips `candidateSubSeeds` and outcome spoiler flags (`isHighStakes`, etc.) from a
- * `DeterministicRoll`, returning a frozen client-safe projection so inspecting client
- * memory never spoils the reel.
+ * Strips `candidateSubSeeds`, `baseSeedHash`, and outcome spoiler flags (`isHighStakes`, etc.)
+ * from a `DeterministicRoll`, returning a frozen client-safe projection with a one-way
+ * `commitmentHash` so inspecting client memory never spoils the reel or allows reconstructing
+ * candidate sub-seeds prior to score submission.
  */
 export function toClientRollPreview(roll: DeterministicRoll): ClientRollPreview {
+  const commitmentHash = sha256HexSync(
+    `reels:commitment:v1:${roll.index}:${roll.baseSeedHash}:${roll.candidateSubSeeds.join(':')}`
+  );
   return Object.freeze({
     index: roll.index,
-    baseSeedHash: roll.baseSeedHash,
+    commitmentHash,
     eventTag: roll.eventTag,
   });
 }

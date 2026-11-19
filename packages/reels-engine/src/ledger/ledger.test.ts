@@ -7,9 +7,10 @@ import {
   serializeMiracleSeedSnapshot,
   type MatchLedgerContext,
 } from './index';
+import { generateDeterministicRoll } from '../prng';
 
 describe('@digitalcanopy/reels-engine Miracle Seed Snapshotter & Cast Ledger Prestige Title Evaluator', () => {
-  it('triggers SNAKE_EYES on double-1 misfire + blind check recovery and reproduces exact board state in MiracleSeedSnapshot', () => {
+  it('triggers SNAKE_EYES on double-1 misfire + blind check recovery, reproduces exact board state, and regenerates identical subsequent source rolls from MiracleSeedSnapshot', async () => {
     const expectedCheckpointBoard = {
       sector: 'Orion-Belt-7',
       fuelCells: 1,
@@ -18,10 +19,18 @@ describe('@digitalcanopy/reels-engine Miracle Seed Snapshotter & Cast Ledger Pre
       shieldActive: false,
     };
 
+    const sourceMatchId = 'match-snake-eyes-01';
+    const sourceRootSeed = 'miracle-seed-root-9921';
+    const sourceNextRoll = await generateDeterministicRoll(
+      sourceRootSeed,
+      sourceMatchId,
+      2
+    );
+
     const context: MatchLedgerContext = {
-      matchId: 'match-snake-eyes-01',
+      matchId: sourceMatchId,
       cartridgeId: 'sector-smuggler',
-      rootSeed: 'miracle-seed-root-9921',
+      rootSeed: sourceRootSeed,
       playerId: 'player-tymz',
       didWin: true,
       awardedAt: '2026-11-19T14:30:00.000Z',
@@ -48,7 +57,7 @@ describe('@digitalcanopy/reels-engine Miracle Seed Snapshotter & Cast Ledger Pre
           rollIndex: 2,
           winProbability: 0.68,
           selectedTier: 'tier2_clutch',
-          selectedSubSeed: 'c'.repeat(64),
+          selectedSubSeed: sourceNextRoll.candidateSubSeeds[2],
           normalizedSkillRatio: 0.92,
           isBlindCheckRecovery: true,
           score: 840,
@@ -74,11 +83,20 @@ describe('@digitalcanopy/reels-engine Miracle Seed Snapshotter & Cast Ledger Pre
     const serialized = serializeMiracleSeedSnapshot(snapshot);
     const restored = deserializeMiracleSeedSnapshot(serialized);
 
-    expect(restored.rootSeed).toBe('miracle-seed-root-9921');
+    expect(restored.matchId).toBe(sourceMatchId);
+    expect(restored.rootSeed).toBe(sourceRootSeed);
     expect(restored.cartridgeId).toBe('sector-smuggler');
     expect(restored.checkpointRollIndex).toBe(1);
     expect(restored.targetScoreToBeat).toBe(840);
     expect(restored.boardSnapshot).toEqual(expectedCheckpointBoard);
+
+    // Regenerate subsequent roll using only the exported snapshot fields
+    const replayedNextRoll = await generateDeterministicRoll(
+      restored.rootSeed,
+      restored.matchId,
+      restored.checkpointRollIndex + 1
+    );
+    expect(replayedNextRoll).toEqual(sourceNextRoll);
   });
 
   it('flags <12% win-probability comeback as MiracleSeedCandidate and awards GAME_MASTER, SECOND_WIND, SMUGGLER_KING, GHOST_SHIP, and AGAINST_ALL_ODDS', () => {
@@ -100,11 +118,11 @@ describe('@digitalcanopy/reels-engine Miracle Seed Snapshotter & Cast Ledger Pre
         },
         {
           rollIndex: 1,
-          winProbability: 0.04, // < 12% and < 5%
+          winProbability: 0.04,
           selectedTier: 'tier0_baseline',
           selectedSubSeed: '2'.repeat(64),
           normalizedSkillRatio: 0.4,
-          hullIntegrity: 3, // <= 5% critical hull for GHOST_SHIP
+          hullIntegrity: 3,
           boardState: { hull: 3, sector: 'Abyss-9' },
           score: 90,
         },
@@ -114,7 +132,7 @@ describe('@digitalcanopy/reels-engine Miracle Seed Snapshotter & Cast Ledger Pre
           selectedTier: 'tier2_clutch',
           selectedSubSeed: '3'.repeat(64),
           normalizedSkillRatio: 0.95,
-          contrabandHoldCount: 4, // >= 3 for SMUGGLER_KING
+          contrabandHoldCount: 4,
           score: 650,
         },
         {
@@ -140,6 +158,64 @@ describe('@digitalcanopy/reels-engine Miracle Seed Snapshotter & Cast Ledger Pre
     expect(badges).toContain('SMUGGLER_KING');
     expect(badges).toContain('GHOST_SHIP');
     expect(badges).toContain('AGAINST_ALL_ODDS');
+  });
+
+  it('awards SMUGGLER_KING on tier3_miracle high-score haul without contraband and GHOST_SHIP on non-victorious critical-hull survival', () => {
+    const miracleHaulContext: MatchLedgerContext = {
+      matchId: 'match-miracle-haul',
+      cartridgeId: 'sector-smuggler',
+      rootSeed: 'seed-haul',
+      playerId: 'player-haul',
+      didWin: true,
+      steps: [
+        {
+          rollIndex: 0,
+          winProbability: 0.8,
+          selectedTier: 'tier3_miracle',
+          selectedSubSeed: '9'.repeat(64),
+          normalizedSkillRatio: 0.85,
+          score: 1250,
+        },
+      ],
+    };
+
+    const haulBadges = evaluateCastLedgerBadges(miracleHaulContext).map(
+      (b) => b.badge
+    );
+    expect(haulBadges).toContain('SMUGGLER_KING');
+
+    const nonVictorGhostContext: MatchLedgerContext = {
+      matchId: 'match-ghost-survivor',
+      cartridgeId: 'sector-smuggler',
+      rootSeed: 'seed-ghost',
+      playerId: 'player-ghost',
+      didWin: false,
+      steps: [
+        {
+          rollIndex: 0,
+          winProbability: 0.2,
+          selectedTier: 'tier0_baseline',
+          selectedSubSeed: '5'.repeat(64),
+          normalizedSkillRatio: 0.4,
+          hullIntegrity: 2,
+          score: 50,
+        },
+        {
+          rollIndex: 1,
+          winProbability: 0.3,
+          selectedTier: 'tier1_favorable',
+          selectedSubSeed: '6'.repeat(64),
+          normalizedSkillRatio: 0.6,
+          hullIntegrity: 2,
+          score: 110,
+        },
+      ],
+    };
+
+    const ghostBadges = evaluateCastLedgerBadges(nonVictorGhostContext).map(
+      (b) => b.badge
+    );
+    expect(ghostBadges).toContain('GHOST_SHIP');
   });
 
   it('does not flag a MiracleSeedCandidate when the player loses the match', () => {

@@ -76,7 +76,7 @@ describe('@digitalcanopy/reels-engine PRNG & Blind Score Sub-Seed Shifter', () =
     expect(normalizeSkillRatio(75, 100)).toBe(0.75);
   });
 
-  it('strips candidateSubSeeds and outcome spoiler flags in toClientRollPreview', async () => {
+  it('strips candidateSubSeeds, baseSeedHash, and outcome spoiler flags in toClientRollPreview', async () => {
     const pool = await generateRollPool('leak-test-root', 'match-leak', 50);
 
     for (const roll of pool.rolls) {
@@ -84,10 +84,12 @@ describe('@digitalcanopy/reels-engine PRNG & Blind Score Sub-Seed Shifter', () =
       const serialized = JSON.stringify(preview);
 
       expect(Object.keys(preview).sort()).toEqual(
-        ['baseSeedHash', 'eventTag', 'index'].sort()
+        ['commitmentHash', 'eventTag', 'index'].sort()
       );
       expect('candidateSubSeeds' in preview).toBe(false);
+      expect('baseSeedHash' in preview).toBe(false);
       expect('isHighStakes' in preview).toBe(false);
+      expect(serialized).not.toContain(roll.baseSeedHash);
 
       for (const subSeed of roll.candidateSubSeeds) {
         expect(serialized).not.toContain(subSeed);

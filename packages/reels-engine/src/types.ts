@@ -19,12 +19,14 @@ export interface DeterministicRoll {
 }
 
 /**
- * Client-safe projection of a DeterministicRoll with all candidate sub-seeds
- * and spoiler flags stripped.
+ * Client-safe projection of a DeterministicRoll with all candidate sub-seeds,
+ * raw baseSeedHash, and spoiler flags stripped.
+ * `commitmentHash` is a one-way cryptographic commitment to `baseSeedHash` and `candidateSubSeeds`
+ * so clients can verify fairness post-reveal without reconstructing candidate sub-seeds beforehand.
  */
 export interface ClientRollPreview {
   index: number;
-  baseSeedHash: string;
+  commitmentHash: string;
   eventTag: string;
 }
 
@@ -168,9 +170,10 @@ export interface MiracleSeedCandidate {
 
 /**
  * Playable puzzle snapshot exported from a MiracleSeedCandidate so other players
- * can challenge the exact comeback scenario.
+ * can challenge the exact comeback scenario and deterministically reproduce subsequent rolls.
  */
 export interface MiracleSeedSnapshot {
+  matchId: string;
   rootSeed: string;
   cartridgeId: string;
   checkpointRollIndex: number;

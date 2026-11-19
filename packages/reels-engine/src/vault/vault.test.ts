@@ -8,9 +8,15 @@ import {
   sealStubRollPayload,
   unsealStubRollPayload,
   type ISqliteExecutor,
+  type IStubStorageAdapter,
+  type StoredStubRecord,
 } from './index';
 import { generateDeterministicRoll } from '../prng';
-import type { BlindSkillSubmission } from '../types';
+import type {
+  BankedStub,
+  BlindSkillSubmission,
+  StubResolutionRecord,
+} from '../types';
 
 class MockSqliteDb implements ISqliteExecutor {
   private rows = new Map<
@@ -58,7 +64,7 @@ class MockSqliteDb implements ISqliteExecutor {
     if (trimmed.startsWith('UPDATE')) {
       const [resolution_json, stub_id] = params as [string, string];
       const existing = this.rows.get(stub_id);
-      if (existing) {
+      if (existing && existing.status !== 'resolved') {
         existing.status = 'resolved';
         existing.resolution_json = resolution_json;
         return { changes: 1 };
@@ -86,35 +92,209 @@ class MockSqliteDb implements ISqliteExecutor {
     return all as unknown as T[];
   }
 
-  async getFirstAsync<T>(_sql: string, params: unknown[] = []): Promise<T | null> {
+  async getFirstAsync<T>(
+    _sql: string,
+    params: unknown[] = []
+  ): Promise<T | null> {
     const [stub_id] = params as [string];
     return (this.rows.get(stub_id) as unknown as T) ?? null;
   }
 }
 
+/**
+ * Simulated browser IDBFactory implementation that exercises actual IndexedDB
+ * version upgrades (`onupgradeneeded`), `objectStoreNames`, `transaction`,
+ * `objectStore`, and `onversionchange` lifecycles.
+ */
+function createMockIdbFactory(): IDBFactory {
+  const databases = new Map<
+    string,
+    {
+      version: number;
+      stores: Map<string, Map<string, StoredStubRecord>>;
+      openConnections: Set<{
+        version: number;
+        onversionchange: (() => void) | null;
+        close: () => void;
+      }>;
+    }
+  >();
+
+  return {
+    open(name: string, requestedVersion?: number) {
+      const req: Record<string, unknown> = {
+        result: null,
+        error: null,
+        onupgradeneeded: null,
+        onsuccess: null,
+        onerror: null,
+      };
+
+      queueMicrotask(() => {
+        let dbEntry = databases.get(name);
+        const isNew = !dbEntry;
+        const currentVersion = dbEntry?.version ?? 0;
+        const targetVersion = requestedVersion ?? (isNew ? 1 : currentVersion);
+
+        if (targetVersion < currentVersion) {
+          req.error = new Error('VersionError');
+          if (typeof req.onerror === 'function') (req.onerror as () => void)();
+          return;
+        }
+
+        const needsUpgrade = isNew || targetVersion > currentVersion;
+        if (!dbEntry) {
+          dbEntry = {
+            version: targetVersion,
+            stores: new Map(),
+            openConnections: new Set(),
+          };
+          databases.set(name, dbEntry);
+        } else if (needsUpgrade) {
+          for (const conn of Array.from(dbEntry.openConnections)) {
+            if (typeof conn.onversionchange === 'function') {
+              conn.onversionchange();
+            }
+          }
+          dbEntry.version = targetVersion;
+        }
+
+        const ref = dbEntry;
+        const connection = {
+          get version() {
+            return ref.version;
+          },
+          onversionchange: null as (() => void) | null,
+          objectStoreNames: {
+            contains(storeName: string) {
+              return ref.stores.has(storeName);
+            },
+          },
+          createObjectStore(storeName: string) {
+            if (!ref.stores.has(storeName)) {
+              ref.stores.set(storeName, new Map());
+            }
+            return {};
+          },
+          close() {
+            ref.openConnections.delete(connection);
+          },
+          transaction(storeName: string, _mode: string) {
+            if (!ref.stores.has(storeName)) {
+              throw new Error(`NotFoundError: store "${storeName}" not found`);
+            }
+            const storeMap = ref.stores.get(storeName)!;
+            const tx: Record<string, unknown> = {
+              oncomplete: null,
+              onerror: null,
+              error: null,
+              objectStore() {
+                return {
+                  put(val: StoredStubRecord) {
+                    storeMap.set(
+                      val.stub.stubId,
+                      JSON.parse(JSON.stringify(val))
+                    );
+                  },
+                  get(key: string) {
+                    const getReq: Record<string, unknown> = {
+                      result: undefined,
+                      onsuccess: null,
+                      onerror: null,
+                    };
+                    queueMicrotask(() => {
+                      const found = storeMap.get(key);
+                      getReq.result = found
+                        ? JSON.parse(JSON.stringify(found))
+                        : undefined;
+                      if (typeof getReq.onsuccess === 'function') {
+                        (getReq.onsuccess as () => void)();
+                      }
+                    });
+                    return getReq;
+                  },
+                  getAll() {
+                    const allReq: Record<string, unknown> = {
+                      result: [],
+                      onsuccess: null,
+                      onerror: null,
+                    };
+                    queueMicrotask(() => {
+                      allReq.result = Array.from(storeMap.values()).map((v) =>
+                        JSON.parse(JSON.stringify(v))
+                      );
+                      if (typeof allReq.onsuccess === 'function') {
+                        (allReq.onsuccess as () => void)();
+                      }
+                    });
+                    return allReq;
+                  },
+                  delete(key: string) {
+                    storeMap.delete(key);
+                  },
+                };
+              },
+            };
+            queueMicrotask(() => {
+              queueMicrotask(() => {
+                if (typeof tx.oncomplete === 'function') {
+                  (tx.oncomplete as () => void)();
+                }
+              });
+            });
+            return tx;
+          },
+        };
+
+        ref.openConnections.add(connection);
+        req.result = connection;
+
+        if (needsUpgrade && typeof req.onupgradeneeded === 'function') {
+          (req.onupgradeneeded as () => void)();
+        }
+        if (typeof req.onsuccess === 'function') {
+          (req.onsuccess as () => void)();
+        }
+      });
+
+      return req as unknown as IDBOpenDBRequest;
+    },
+  } as unknown as IDBFactory;
+}
+
 describe('@digitalcanopy/reels-engine Bonus Stub Vault & Storage Adapters', () => {
-  it('seals and unseals a DeterministicRoll without leaking plaintext candidate sub-seeds', async () => {
+  it('seals with fresh IVs per encryption call, rejects plaintext or tampered payloads, and unseals properly', async () => {
     const roll = await generateDeterministicRoll(
       'vault-secret-seed',
       'match-encrypt',
       3
     );
-    const sealed = await sealStubRollPayload(roll, 'custom-user-device-key');
+    const sealedA = await sealStubRollPayload(roll, 'custom-user-device-key');
+    const sealedB = await sealStubRollPayload(roll, 'custom-user-device-key');
+
+    // Fresh CSPRNG IV ensures sealing the same roll twice yields distinct ciphertexts/IVs
+    expect(sealedA).not.toBe(sealedB);
 
     for (const subSeed of roll.candidateSubSeeds) {
-      expect(sealed).not.toContain(subSeed);
+      expect(sealedA).not.toContain(subSeed);
     }
 
     const unsealed = await unsealStubRollPayload(
-      sealed,
+      sealedA,
       'custom-user-device-key'
     );
     expect(unsealed).toEqual(roll);
+
+    // Rejects unauthenticated plaintext JSON
+    await expect(
+      unsealStubRollPayload(JSON.stringify(roll), 'custom-user-device-key')
+    ).rejects.toThrow(/plaintext payloads are rejected/i);
   });
 
   it('preserves unplayed BankedStub records across close/rehydration and prevents double-claim exploits (MemoryStubAdapter)', async () => {
+    const sharedSecret = 'test-device-secret-key';
     const adapterA = new MemoryStubAdapter();
-    const vaultA = new StubVault(adapterA);
+    const vaultA = new StubVault(adapterA, { vaultSecret: sharedSecret });
 
     const roll1 = await generateDeterministicRoll('seed-vault-1', 'match-1', 4);
     const roll2 = await generateDeterministicRoll('seed-vault-1', 'match-1', 9);
@@ -138,7 +318,7 @@ describe('@digitalcanopy/reels-engine Bonus Stub Vault & Storage Adapters', () =
     // Simulate closing the app mid-trigger and rehydrating a brand new store instance
     const persistedSnapshot = adapterA.exportSnapshot();
     const adapterB = new MemoryStubAdapter(persistedSnapshot);
-    const vaultB = new StubVault(adapterB);
+    const vaultB = new StubVault(adapterB, { vaultSecret: sharedSecret });
 
     const activeAfterRehydrate = await vaultB.listActiveStubs(
       '2026-11-20T00:00:00.000Z'
@@ -181,10 +361,8 @@ describe('@digitalcanopy/reels-engine Bonus Stub Vault & Storage Adapters', () =
       '2026-11-20T01:05:01.000Z'
     );
 
-    // Must return the exact original resolution record without re-rolling
     expect(secondResolution).toEqual(firstResolution);
 
-    // Attempting to re-put an already-resolved stubId is a no-op
     await vaultB.putStub(stub1);
     const remainingActive = await vaultB.listActiveStubs(
       '2026-11-20T02:00:00.000Z'
@@ -193,15 +371,91 @@ describe('@digitalcanopy/reels-engine Bonus Stub Vault & Storage Adapters', () =
     expect(remainingActive[0].stubId).toBe(stub2.stubId);
   });
 
-  it('supports IndexedDbStubAdapter close/reopen lifecycle, idempotent resolution, and purgeExpired', async () => {
-    const dbName = 'test_reels_idb_vault';
-    const idbAdapter1 = new IndexedDbStubAdapter({ dbName });
-    const vault1 = new StubVault(idbAdapter1);
+  it('rejects claiming an expired stub even before purgeExpired is called', async () => {
+    const adapter = new MemoryStubAdapter();
+    const vault = new StubVault(adapter);
+    const roll = await generateDeterministicRoll('exp-seed', 'm-exp', 0);
+
+    await vault.bankRollStub({
+      stubId: 'expired-unpurged-stub',
+      matchId: 'm-exp',
+      cartridgeId: 'sector-smuggler',
+      roll,
+      expiresAt: '2026-11-10T00:00:00.000Z',
+    });
+
+    await expect(
+      vault.resolveStub(
+        'expired-unpurged-stub',
+        undefined,
+        '2026-11-15T00:00:00.000Z'
+      )
+    ).rejects.toThrow(/expired/i);
+  });
+
+  it('supports custom IStubStorageAdapter implementations that omit optional getStub', async () => {
+    const activeMap = new Map<string, BankedStub>();
+    const resolvedMap = new Map<string, StubResolutionRecord>();
+
+    const customAdapter: IStubStorageAdapter = {
+      async putStub(stub) {
+        if (!resolvedMap.has(stub.stubId)) {
+          activeMap.set(stub.stubId, { ...stub });
+        }
+      },
+      async listActiveStubs() {
+        return Array.from(activeMap.values());
+      },
+      async markStubResolved(stubId, resolution) {
+        const existing = resolvedMap.get(stubId);
+        if (existing) return existing;
+        activeMap.delete(stubId);
+        resolvedMap.set(stubId, { ...resolution });
+        return { ...resolution };
+      },
+      async purgeExpired() {
+        return 0;
+      },
+    };
+
+    const vault = new StubVault(customAdapter);
+    const roll = await generateDeterministicRoll('custom-seed', 'm-custom', 1);
+    const banked = await vault.bankRollStub({
+      stubId: 'custom-stub-1',
+      matchId: 'm-custom',
+      cartridgeId: 'sector-smuggler',
+      roll,
+    });
+
+    const first = await vault.resolveStub(
+      banked.stubId,
+      undefined,
+      '2026-11-19T12:00:00.000Z'
+    );
+    const second = await vault.resolveStub(
+      banked.stubId,
+      undefined,
+      '2026-11-19T13:00:00.000Z'
+    );
+    expect(second).toEqual(first);
+  });
+
+  it('supports IndexedDbStubAdapter with real IDB transactions, multi-store version upgrades, and concurrent claim idempotency', async () => {
+    const mockIdb = createMockIdbFactory();
+    const dbName = 'test_reels_real_idb';
+    const sharedSecret = 'idb-test-secret';
+
+    const idbAdapterA = new IndexedDbStubAdapter({
+      dbName,
+      storeName: 'player_a_store',
+      indexedDB: mockIdb,
+    });
+    const vaultA = new StubVault(idbAdapterA, { vaultSecret: sharedSecret });
 
     const rollActive = await generateDeterministicRoll('idb-seed', 'm-10', 1);
     const rollExpired = await generateDeterministicRoll('idb-seed', 'm-10', 2);
 
-    await vault1.bankRollStub({
+    await vaultA.bankRollStub({
       stubId: 'idb-stub-active',
       matchId: 'm-10',
       cartridgeId: 'VOID-RUNNER',
@@ -209,7 +463,7 @@ describe('@digitalcanopy/reels-engine Bonus Stub Vault & Storage Adapters', () =
       expiresAt: '2026-12-01T00:00:00.000Z',
     });
 
-    await vault1.bankRollStub({
+    await vaultA.bankRollStub({
       stubId: 'idb-stub-expired',
       matchId: 'm-10',
       cartridgeId: 'VOID-RUNNER',
@@ -217,38 +471,75 @@ describe('@digitalcanopy/reels-engine Bonus Stub Vault & Storage Adapters', () =
       expiresAt: '2026-11-01T00:00:00.000Z',
     });
 
-    await idbAdapter1.close();
+    await idbAdapterA.close();
 
-    // Reopen a new IndexedDbStubAdapter pointing at the same database name
-    const idbAdapter2 = new IndexedDbStubAdapter({ dbName });
-    const vault2 = new StubVault(idbAdapter2);
+    // Open a second storeName on the same database to test dynamic version upgrade
+    const idbAdapterB = new IndexedDbStubAdapter({
+      dbName,
+      storeName: 'player_b_store',
+      indexedDB: mockIdb,
+    });
+    const vaultB = new StubVault(idbAdapterB, { vaultSecret: sharedSecret });
+    await vaultB.bankRollStub({
+      stubId: 'idb-stub-player-b',
+      matchId: 'm-10',
+      cartridgeId: 'VOID-RUNNER',
+      roll: rollActive,
+    });
+    expect(await vaultB.listActiveStubs()).toHaveLength(1);
+    await idbAdapterB.close();
 
-    const active = await vault2.listActiveStubs('2026-11-15T00:00:00.000Z');
+    // Reopen first store and verify concurrent claims return identical receipt
+    const idbAdapterA2 = new IndexedDbStubAdapter({
+      dbName,
+      storeName: 'player_a_store',
+      indexedDB: mockIdb,
+    });
+    const vaultA2 = new StubVault(idbAdapterA2, { vaultSecret: sharedSecret });
+
+    const active = await vaultA2.listActiveStubs('2026-11-15T00:00:00.000Z');
     expect(active).toHaveLength(1);
     expect(active[0].stubId).toBe('idb-stub-active');
 
-    const purgedCount = await vault2.purgeExpired('2026-11-15T00:00:00.000Z');
+    const purgedCount = await vaultA2.purgeExpired('2026-11-15T00:00:00.000Z');
     expect(purgedCount).toBe(1);
 
-    const resA = await vault2.resolveStub(
-      'idb-stub-active',
-      undefined,
-      '2026-11-15T01:00:00.000Z'
-    );
-    const resB = await vault2.resolveStub(
-      'idb-stub-active',
-      undefined,
-      '2026-11-15T02:00:00.000Z'
-    );
+    const [resA, resB] = await Promise.all([
+      vaultA2.resolveStub(
+        'idb-stub-active',
+        {
+          rollIndex: 1,
+          minigameId: 'g1',
+          rawScore: 10,
+          maxScore: 100,
+          clientSignature: 's1',
+          submittedAt: '2026-11-15T01:00:00.000Z',
+        },
+        '2026-11-15T01:00:00.000Z'
+      ),
+      vaultA2.resolveStub(
+        'idb-stub-active',
+        {
+          rollIndex: 1,
+          minigameId: 'g1',
+          rawScore: 99,
+          maxScore: 100,
+          clientSignature: 's2',
+          submittedAt: '2026-11-15T01:00:05.000Z',
+        },
+        '2026-11-15T01:00:05.000Z'
+      ),
+    ]);
     expect(resB).toEqual(resA);
   });
 
-  it('supports ExpoSqliteStubAdapter via createExpoSqliteStubAdapter interface hook', async () => {
+  it('supports ExpoSqliteStubAdapter via createExpoSqliteStubAdapter with concurrent claim protection', async () => {
     const sqliteDb = new MockSqliteDb();
+    const sharedSecret = 'sqlite-test-secret';
     const sqliteAdapter = createExpoSqliteStubAdapter(sqliteDb);
     expect(sqliteAdapter).toBeInstanceOf(ExpoSqliteStubAdapter);
 
-    const vault = new StubVault(sqliteAdapter);
+    const vault = new StubVault(sqliteAdapter, { vaultSecret: sharedSecret });
     const roll = await generateDeterministicRoll('sqlite-seed', 'm-sqlite', 7);
 
     const banked = await vault.bankRollStub({
@@ -259,22 +550,25 @@ describe('@digitalcanopy/reels-engine Bonus Stub Vault & Storage Adapters', () =
       expiresAt: null,
     });
 
-    // Re-instantiate adapter over the same SQLite database to verify persistence
-    const reopenedVault = new StubVault(createExpoSqliteStubAdapter(sqliteDb));
+    const reopenedVault = new StubVault(createExpoSqliteStubAdapter(sqliteDb), {
+      vaultSecret: sharedSecret,
+    });
     const listed = await reopenedVault.listActiveStubs();
     expect(listed).toHaveLength(1);
     expect(listed[0].stubId).toBe(banked.stubId);
 
-    const firstClaim = await reopenedVault.resolveStub(
-      banked.stubId,
-      undefined,
-      '2026-11-19T10:00:00.000Z'
-    );
-    const repeatClaim = await reopenedVault.resolveStub(
-      banked.stubId,
-      undefined,
-      '2026-11-19T11:00:00.000Z'
-    );
+    const [firstClaim, repeatClaim] = await Promise.all([
+      reopenedVault.resolveStub(
+        banked.stubId,
+        undefined,
+        '2026-11-19T10:00:00.000Z'
+      ),
+      reopenedVault.resolveStub(
+        banked.stubId,
+        undefined,
+        '2026-11-19T11:00:00.000Z'
+      ),
+    ]);
 
     expect(repeatClaim).toEqual(firstClaim);
     expect(await reopenedVault.listActiveStubs()).toHaveLength(0);
