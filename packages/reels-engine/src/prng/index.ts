@@ -7,3 +7,5 @@ export type {
   TierProbabilityDistribution,
   BlindCheckResult,
 } from '../types';
+
+export * from './prng';
