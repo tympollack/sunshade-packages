@@ -1,3 +1,5 @@
+export * from './scorer';
+export * from './pacing';
 export type {
   DramaBeatType,
   DirectorCameraCue,
