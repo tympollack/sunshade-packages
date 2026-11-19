@@ -1,3 +1,5 @@
+export * from './track';
+export * from './avatarSeam';
 export type {
   AvatarRigBlendShapeFrame,
   ICreatorPresenceProvider,
