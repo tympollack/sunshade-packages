@@ -1,0 +1,67 @@
+{
+  "name": "@digitalcanopy/reels-engine",
+  "version": "0.1.0",
+  "description": "Headless deterministic roll-pool simulation engine, blind skill-check sub-seed probability shifter, encrypted local Stub Vault, Cadence chapter governors, and Miracle Seed ledger evaluator",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    },
+    "./prng": {
+      "types": "./dist/prng/index.d.ts",
+      "import": "./dist/prng/index.mjs",
+      "require": "./dist/prng/index.js"
+    },
+    "./vault": {
+      "types": "./dist/vault/index.d.ts",
+      "import": "./dist/vault/index.mjs",
+      "require": "./dist/vault/index.js"
+    },
+    "./cadence": {
+      "types": "./dist/cadence/index.d.ts",
+      "import": "./dist/cadence/index.mjs",
+      "require": "./dist/cadence/index.js"
+    },
+    "./ledger": {
+      "types": "./dist/ledger/index.d.ts",
+      "import": "./dist/ledger/index.mjs",
+      "require": "./dist/ledger/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts src/prng/index.ts src/vault/index.ts src/cadence/index.ts src/ledger/index.ts --dts --format cjs,esm --minify",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:boundaries": "vitest run"
+  },
+  "dependencies": {
+    "@digitalcanopy/cadence": "*"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.1",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  },
+  "keywords": [
+    "sunshade",
+    "reels-engine",
+    "deterministic-prng",
+    "blind-skill-check",
+    "stub-vault",
+    "cadence",
+    "miracle-seed"
+  ],
+  "author": "SunShade Systems",
+  "license": "MIT"
+}
