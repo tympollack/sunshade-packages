@@ -149,4 +149,95 @@ describe('@digitalcanopy/dramacast CreatorPresenceTrack (V1 WebRTC PiP + V2 Avat
 
     await avatar.stop();
   });
+
+  it('aborts pending getUserMedia acquisition if stop() is called mid-flight and coalesces concurrent start() calls', async () => {
+    const stopA = vi.fn();
+    let resolveMedia!: (stream: MediaStream) => void;
+    const deferredStream = new Promise<MediaStream>((resolve) => {
+      resolveMedia = resolve;
+    });
+    const getUserMedia = vi.fn(() => deferredStream);
+
+    const track = new WebRTCPiPPresenceTrack({
+      mediaDevices: { getUserMedia },
+    });
+
+    const events: PresenceTrackEvent[] = [];
+    track.onEvent((e) => events.push(e));
+
+    const start1 = track.start();
+    const start2 = track.start();
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+
+    await track.stop();
+    resolveMedia({
+      getTracks: () => [{ stop: stopA }],
+      getVideoTracks: () => [],
+      getAudioTracks: () => [],
+    } as unknown as MediaStream);
+
+    await Promise.all([start1, start2]);
+
+    expect(stopA).toHaveBeenCalledTimes(1);
+    expect(track.isActive()).toBe(false);
+    expect(track.getMediaStream()).toBeNull();
+    expect(events.map((e) => e.type)).toEqual(['PRESENCE_STOPPED']);
+  });
+
+  it('releases owned tracks when replaced or detached via attachMediaStream, while preserving ownership on same-stream reattach', async () => {
+    const stopOwned = vi.fn();
+    const ownedStream = {
+      getTracks: () => [{ stop: stopOwned }],
+      getVideoTracks: () => [],
+      getAudioTracks: () => [],
+    } as unknown as MediaStream;
+
+    const track = new WebRTCPiPPresenceTrack({
+      mediaDevices: { getUserMedia: async () => ownedStream },
+    });
+
+    await track.start();
+    // Same-stream reattachment must preserve ownership
+    track.attachMediaStream(track.getMediaStream());
+    expect(stopOwned).not.toHaveBeenCalled();
+    await track.stop();
+    expect(stopOwned).toHaveBeenCalledTimes(1);
+
+    // Replacing owned stream with external stream or null must stop owned tracks immediately
+    const stopOwned2 = vi.fn();
+    const ownedStream2 = {
+      getTracks: () => [{ stop: stopOwned2 }],
+      getVideoTracks: () => [],
+      getAudioTracks: () => [],
+    } as unknown as MediaStream;
+    const track2 = new WebRTCPiPPresenceTrack({
+      mediaDevices: { getUserMedia: async () => ownedStream2 },
+    });
+    await track2.start();
+    const stopExternal = vi.fn();
+    const externalStream = {
+      getTracks: () => [{ stop: stopExternal }],
+      getVideoTracks: () => [],
+      getAudioTracks: () => [],
+    } as unknown as MediaStream;
+
+    track2.attachMediaStream(externalStream);
+    expect(stopOwned2).toHaveBeenCalledTimes(1);
+    await track2.stop();
+    expect(stopExternal).not.toHaveBeenCalled();
+
+    // Null detachment on owned stream
+    const stopOwned3 = vi.fn();
+    const ownedStream3 = {
+      getTracks: () => [{ stop: stopOwned3 }],
+      getVideoTracks: () => [],
+      getAudioTracks: () => [],
+    } as unknown as MediaStream;
+    const track3 = new WebRTCPiPPresenceTrack({
+      mediaDevices: { getUserMedia: async () => ownedStream3 },
+    });
+    await track3.start();
+    track3.attachMediaStream(null);
+    expect(stopOwned3).toHaveBeenCalledTimes(1);
+  });
 });

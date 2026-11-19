@@ -229,6 +229,7 @@ export interface EncodedTelemetryBundle {
  */
 export interface ScrubSyncState {
   playheadMs: number;
+  sourceTimeMs?: number;
   durationMs: number;
   activeFrame: TelemetryFrame | null;
   activeKeyframe: DirectorKeyframe | null;

@@ -3,22 +3,28 @@ import type {
   TelemetryFrame,
   TelemetryStreamHeader,
 } from '../types';
+import { ByteReader, ByteWriter, TelemetryCodecError } from './binary';
+
+export {
+  TelemetryCodecError,
+  base64UrlToTelemetryBytes,
+  telemetryBytesToBase64Url,
+} from './binary';
 
 export const TELEMETRY_MAGIC = 'DCAST1' as const;
 export const TELEMETRY_CODEC_VERSION = 1;
 export const DEFAULT_QUANTIZATION_SCALE = 1000;
+export const MAX_VECTOR_DIMENSIONS = 4096;
+export const MAX_FRAME_COUNT = 1_000_000;
+export const MAX_STATE_DELTA_KEYS = 256;
 
 export const TELEMETRY_FLAG_HIGH_STAKES = 1 << 0;
 export const TELEMETRY_FLAG_MISFIRE = 1 << 1;
 export const TELEMETRY_FLAG_BLIND_RECOVERY = 1 << 2;
 
-export class TelemetryCodecError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'TelemetryCodecError';
-    Object.setPrototypeOf(this, TelemetryCodecError.prototype);
-  }
-}
+const STATE_DELTA_TYPE_NUMBER = 0;
+const STATE_DELTA_TYPE_BOOLEAN = 1;
+const STATE_DELTA_TYPE_STRING = 2;
 
 export interface EncodeTelemetryOptions {
   matchId: string;
@@ -27,141 +33,72 @@ export interface EncodeTelemetryOptions {
   quantizationScale?: number;
 }
 
-class ByteWriter {
-  private buf: Uint8Array;
-  private len = 0;
-
-  constructor(initialCapacity = 256) {
-    this.buf = new Uint8Array(initialCapacity);
-  }
-
-  private ensure(extra: number): void {
-    if (this.len + extra <= this.buf.length) return;
-    let nextCap = this.buf.length * 2;
-    while (nextCap < this.len + extra) nextCap *= 2;
-    const next = new Uint8Array(nextCap);
-    next.set(this.buf.subarray(0, this.len));
-    this.buf = next;
-  }
-
-  writeUint8(v: number): void {
-    this.ensure(1);
-    this.buf[this.len++] = v & 0xff;
-  }
-
-  writeUint16(v: number): void {
-    this.ensure(2);
-    this.buf[this.len++] = (v >>> 8) & 0xff;
-    this.buf[this.len++] = v & 0xff;
-  }
-
-  writeUint32(v: number): void {
-    this.ensure(4);
-    this.buf[this.len++] = (v >>> 24) & 0xff;
-    this.buf[this.len++] = (v >>> 16) & 0xff;
-    this.buf[this.len++] = (v >>> 8) & 0xff;
-    this.buf[this.len++] = v & 0xff;
-  }
-
-  writeVarUint(v: number): void {
-    let val = Math.max(0, Math.floor(v));
-    while (val >= 0x80) {
-      this.writeUint8((val % 0x80) | 0x80);
-      val = Math.floor(val / 0x80);
-    }
-    this.writeUint8(val);
-  }
-
-  writeVarSint(v: number): void {
-    const n = Math.trunc(v);
-    const zigzag = n >= 0 ? n * 2 : -n * 2 - 1;
-    this.writeVarUint(zigzag);
-  }
-
-  writeBytes(bytes: Uint8Array): void {
-    this.ensure(bytes.length);
-    this.buf.set(bytes, this.len);
-    this.len += bytes.length;
-  }
-
-  writeUtf8(str: string): void {
-    const encoded = new TextEncoder().encode(str);
-    this.writeVarUint(encoded.length);
-    this.writeBytes(encoded);
-  }
-
-  toUint8Array(): Uint8Array {
-    return this.buf.slice(0, this.len);
-  }
-}
-
-class ByteReader {
-  private offset = 0;
-
-  constructor(private readonly data: Uint8Array) {}
-
-  private assertAvailable(count: number): void {
-    if (this.offset + count > this.data.length) {
-      throw new TelemetryCodecError(
-        `Unexpected end of telemetry stream at byte ${this.offset} (needed ${count} bytes).`
-      );
-    }
-  }
-
-  readUint8(): number {
-    this.assertAvailable(1);
-    return this.data[this.offset++];
-  }
-
-  readUint16(): number {
-    this.assertAvailable(2);
-    const hi = this.data[this.offset++];
-    const lo = this.data[this.offset++];
-    return (hi << 8) | lo;
-  }
-
-  readUint32(): number {
-    this.assertAvailable(4);
-    const b0 = this.data[this.offset++];
-    const b1 = this.data[this.offset++];
-    const b2 = this.data[this.offset++];
-    const b3 = this.data[this.offset++];
-    return ((b0 << 24) | (b1 << 16) | (b2 << 8) | b3) >>> 0;
-  }
-
-  readVarUint(): number {
-    let result = 0;
-    let multiplier = 1;
-    for (let i = 0; i < 8; i++) {
-      const byte = this.readUint8();
-      result += (byte & 0x7f) * multiplier;
-      if ((byte & 0x80) === 0) return result;
-      multiplier *= 128;
-    }
-    throw new TelemetryCodecError('VarUint exceeds maximum supported width.');
-  }
-
-  readVarSint(): number {
-    const zigzag = this.readVarUint();
-    return zigzag % 2 === 0 ? zigzag / 2 : -((zigzag + 1) / 2);
-  }
-
-  readUtf8(): string {
-    const byteLen = this.readVarUint();
-    this.assertAvailable(byteLen);
-    const slice = this.data.subarray(this.offset, this.offset + byteLen);
-    this.offset += byteLen;
-    return new TextDecoder().decode(slice);
-  }
-
-  get remaining(): number {
-    return this.data.length - this.offset;
-  }
-}
-
 function clamp(v: number, min: number, max: number): number {
   if (!Number.isFinite(v)) return min;
   return Math.max(min, Math.min(max, v));
+}
+
+function writeStateDelta(
+  writer: ByteWriter,
+  stateDelta: Record<string, number | boolean | string> | undefined
+): void {
+  if (!stateDelta) {
+    writer.writeVarUint(0);
+    return;
+  }
+  const entries = Object.entries(stateDelta);
+  if (entries.length > MAX_STATE_DELTA_KEYS) {
+    throw new TelemetryCodecError(
+      `stateDelta key count (${entries.length}) exceeds maximum (${MAX_STATE_DELTA_KEYS}).`
+    );
+  }
+  writer.writeVarUint(entries.length);
+  for (const [key, val] of entries) {
+    writer.writeUtf8(key);
+    if (typeof val === 'number') {
+      writer.writeUint8(STATE_DELTA_TYPE_NUMBER);
+      writer.writeFloat64(val);
+    } else if (typeof val === 'boolean') {
+      writer.writeUint8(STATE_DELTA_TYPE_BOOLEAN);
+      writer.writeUint8(val ? 1 : 0);
+    } else if (typeof val === 'string') {
+      writer.writeUint8(STATE_DELTA_TYPE_STRING);
+      writer.writeUtf8(val);
+    } else {
+      throw new TelemetryCodecError(
+        `Unsupported stateDelta value type for key "${key}".`
+      );
+    }
+  }
+}
+
+function readStateDelta(
+  reader: ByteReader
+): Record<string, number | boolean | string> | undefined {
+  const entryCount = reader.readVarUint();
+  if (entryCount === 0) return undefined;
+  if (entryCount > MAX_STATE_DELTA_KEYS || entryCount * 3 > reader.remaining) {
+    throw new TelemetryCodecError(
+      `Invalid stateDelta entry count (${entryCount}) for remaining stream bytes.`
+    );
+  }
+  const delta: Record<string, number | boolean | string> = {};
+  for (let i = 0; i < entryCount; i++) {
+    const key = reader.readUtf8();
+    const typeTag = reader.readUint8();
+    if (typeTag === STATE_DELTA_TYPE_NUMBER) {
+      delta[key] = reader.readFloat64();
+    } else if (typeTag === STATE_DELTA_TYPE_BOOLEAN) {
+      delta[key] = reader.readUint8() !== 0;
+    } else if (typeTag === STATE_DELTA_TYPE_STRING) {
+      delta[key] = reader.readUtf8();
+    } else {
+      throw new TelemetryCodecError(
+        `Unsupported stateDelta type tag ${typeTag} for key "${key}".`
+      );
+    }
+  }
+  return delta;
 }
 
 /**
@@ -180,6 +117,11 @@ export function encodeTelemetryBundle(
     (maxDim, f) => Math.max(maxDim, f.boardVector?.length ?? 0),
     0
   );
+  if (vectorDimensions > MAX_VECTOR_DIMENSIONS) {
+    throw new TelemetryCodecError(
+      `Vector dimensions (${vectorDimensions}) exceed maximum (${MAX_VECTOR_DIMENSIONS}).`
+    );
+  }
   const durationMs =
     sorted.length > 0 ? Math.max(0, Math.round(sorted[sorted.length - 1].tMs)) : 0;
 
@@ -211,7 +153,8 @@ export function encodeTelemetryBundle(
   let prevTMs = 0;
   let prevRollIndex = 0;
   let prevScore = 0;
-  const prevVector = new Array<number>(vectorDimensions).fill(0);
+  const prevVector =
+    vectorDimensions > 0 ? new Array<number>(vectorDimensions).fill(0) : [];
 
   for (const frame of sorted) {
     const tMs = Math.max(prevTMs, Math.round(frame.tMs));
@@ -228,7 +171,8 @@ export function encodeTelemetryBundle(
 
     const winProbQ = Math.round(clamp(frame.winProbability, 0, 1) * 10000);
     const dramaQ = Math.round(clamp(frame.dramaIndex, 0, 100) * 100);
-    const metaByte = ((frame.tierIndex & 0x03) | ((frame.flags & 0x3f) << 2)) & 0xff;
+    const metaByte =
+      ((frame.tierIndex & 0x03) | ((frame.flags & 0x3f) << 2)) & 0xff;
 
     writer.writeVarUint(dtMs);
     writer.writeVarSint(dRoll);
@@ -245,6 +189,8 @@ export function encodeTelemetryBundle(
       writer.writeVarSint(quantized - prevVector[d]);
       prevVector[d] = quantized;
     }
+
+    writeStateDelta(writer, frame.stateDelta);
   }
 
   const payload = writer.toUint8Array();
@@ -293,6 +239,23 @@ export function decodeTelemetryBundle(payload: Uint8Array): {
   const vectorDimensions = reader.readVarUint();
   const quantizationScale = Math.max(1, reader.readVarUint());
 
+  if (vectorDimensions > MAX_VECTOR_DIMENSIONS) {
+    throw new TelemetryCodecError(
+      `Header vectorDimensions (${vectorDimensions}) exceeds maximum allowed (${MAX_VECTOR_DIMENSIONS}).`
+    );
+  }
+  if (frameCount > MAX_FRAME_COUNT) {
+    throw new TelemetryCodecError(
+      `Header frameCount (${frameCount}) exceeds maximum allowed (${MAX_FRAME_COUNT}).`
+    );
+  }
+  const minBytesPerFrame = 9 + vectorDimensions;
+  if (frameCount > 0 && frameCount * minBytesPerFrame > reader.remaining) {
+    throw new TelemetryCodecError(
+      `Truncated telemetry payload: ${frameCount} frame(s) require at least ${frameCount * minBytesPerFrame} bytes, but only ${reader.remaining} remain.`
+    );
+  }
+
   const header: TelemetryStreamHeader = {
     magic: TELEMETRY_MAGIC,
     version,
@@ -309,7 +272,10 @@ export function decodeTelemetryBundle(payload: Uint8Array): {
   let prevTMs = 0;
   let prevRollIndex = 0;
   let prevScore = 0;
-  const prevVector = new Array<number>(vectorDimensions).fill(0);
+  const prevVector =
+    frameCount > 0 && vectorDimensions > 0
+      ? new Array<number>(vectorDimensions).fill(0)
+      : [];
 
   for (let seq = 0; seq < frameCount; seq++) {
     const dtMs = reader.readVarUint();
@@ -332,6 +298,8 @@ export function decodeTelemetryBundle(payload: Uint8Array): {
       }
     }
 
+    const stateDelta = readStateDelta(reader);
+
     frames.push({
       seq,
       tMs: prevTMs,
@@ -342,61 +310,9 @@ export function decodeTelemetryBundle(payload: Uint8Array): {
       tierIndex: (metaByte & 0x03) as 0 | 1 | 2 | 3,
       flags: (metaByte >>> 2) & 0x3f,
       ...(boardVector ? { boardVector } : {}),
+      ...(stateDelta ? { stateDelta } : {}),
     });
   }
 
   return { header, frames };
-}
-
-/**
- * Encodes raw telemetry bytes to portable URL-safe base64 without Node Buffer dependencies.
- */
-export function telemetryBytesToBase64Url(bytes: Uint8Array): string {
-  const alphabet =
-    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
-  let out = '';
-  for (let i = 0; i < bytes.length; i += 3) {
-    const b0 = bytes[i];
-    const hasB1 = i + 1 < bytes.length;
-    const hasB2 = i + 2 < bytes.length;
-    const b1 = hasB1 ? bytes[i + 1] : 0;
-    const b2 = hasB2 ? bytes[i + 2] : 0;
-    const triplet = (b0 << 16) | (b1 << 8) | b2;
-    out += alphabet[(triplet >>> 18) & 0x3f];
-    out += alphabet[(triplet >>> 12) & 0x3f];
-    if (hasB1) out += alphabet[(triplet >>> 6) & 0x3f];
-    if (hasB2) out += alphabet[triplet & 0x3f];
-  }
-  return out;
-}
-
-/**
- * Decodes URL-safe base64 telemetry strings back to `Uint8Array`.
- */
-export function base64UrlToTelemetryBytes(input: string): Uint8Array {
-  const clean = input.replace(/=+$/, '');
-  const alphabet =
-    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
-  const lookup = new Map<string, number>();
-  for (let i = 0; i < alphabet.length; i++) lookup.set(alphabet[i], i);
-
-  const bytes: number[] = [];
-  for (let i = 0; i < clean.length; i += 4) {
-    const c0 = lookup.get(clean[i]);
-    const c1 = lookup.get(clean[i + 1]);
-    if (c0 === undefined || c1 === undefined) {
-      throw new TelemetryCodecError('Invalid base64url telemetry character.');
-    }
-    const c2 = i + 2 < clean.length ? lookup.get(clean[i + 2]) : undefined;
-    const c3 = i + 3 < clean.length ? lookup.get(clean[i + 3]) : undefined;
-
-    bytes.push((c0 << 2) | (c1 >>> 4));
-    if (c2 !== undefined) {
-      bytes.push(((c1 & 0x0f) << 4) | (c2 >>> 2));
-    }
-    if (c3 !== undefined && c2 !== undefined) {
-      bytes.push(((c2 & 0x03) << 6) | c3);
-    }
-  }
-  return new Uint8Array(bytes);
 }

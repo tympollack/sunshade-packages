@@ -206,6 +206,8 @@ export class WebRTCPiPPresenceTrack implements ICreatorPresenceProvider {
   private stream: MediaStream | null = null;
   private ownsStream = false;
   private active = false;
+  private lifecycleGeneration = 0;
+  private pendingStart: Promise<void> | null = null;
   private listeners = new Set<(event: PresenceTrackEvent) => void>();
 
   constructor(options: WebRTCPiPPresenceOptions = {}) {
@@ -224,6 +226,14 @@ export class WebRTCPiPPresenceTrack implements ICreatorPresenceProvider {
   private emit(event: PresenceTrackEvent): void {
     for (const listener of this.listeners) {
       listener(event);
+    }
+  }
+
+  private stopStreamTracks(stream: MediaStream | null): void {
+    if (!stream) return;
+    const tracks = stream.getTracks?.() ?? [];
+    for (const track of tracks) {
+      track.stop?.();
     }
   }
 
@@ -247,6 +257,13 @@ export class WebRTCPiPPresenceTrack implements ICreatorPresenceProvider {
   }
 
   attachMediaStream(stream: MediaStream | null): void {
+    if (stream === this.stream) {
+      return;
+    }
+    this.lifecycleGeneration++;
+    if (this.ownsStream && this.stream && this.stopTracksOnStop) {
+      this.stopStreamTracks(this.stream);
+    }
     this.stream = stream;
     this.ownsStream = false;
   }
@@ -283,50 +300,77 @@ export class WebRTCPiPPresenceTrack implements ICreatorPresenceProvider {
 
   async start(): Promise<void> {
     if (this.active) return;
-
-    if (!this.stream) {
-      const devices =
-        this.mediaDevices ??
-        (typeof globalThis !== 'undefined' &&
-        'navigator' in globalThis &&
-        (globalThis as { navigator?: { mediaDevices?: MediaDevicesLike } })
-          .navigator?.mediaDevices
-          ? (globalThis as { navigator?: { mediaDevices?: MediaDevicesLike } })
-              .navigator?.mediaDevices
-          : undefined);
-
-      if (!devices || typeof devices.getUserMedia !== 'function') {
-        const message =
-          'WebRTC mediaDevices.getUserMedia is unavailable in this environment.';
-        this.emit({ type: 'PRESENCE_ERROR', message, recoverable: false });
-        throw new Error(message);
-      }
-
-      const constraints = buildWebRTCMediaConstraints(
-        this.opusProfile,
-        this.videoConstraints
-      );
-      this.stream = await devices.getUserMedia(constraints);
-      this.ownsStream = true;
+    if (this.pendingStart) {
+      return this.pendingStart;
     }
 
-    this.active = true;
-    this.emit({
-      type: 'PRESENCE_STARTED',
-      mode: this.mode,
-      timestampMs: Date.now(),
-    });
+    const startGeneration = this.lifecycleGeneration;
+    const task = (async () => {
+      if (!this.stream) {
+        const devices =
+          this.mediaDevices ??
+          (typeof globalThis !== 'undefined' &&
+          'navigator' in globalThis &&
+          (globalThis as { navigator?: { mediaDevices?: MediaDevicesLike } })
+            .navigator?.mediaDevices
+            ? (globalThis as { navigator?: { mediaDevices?: MediaDevicesLike } })
+                .navigator?.mediaDevices
+            : undefined);
+
+        if (!devices || typeof devices.getUserMedia !== 'function') {
+          const message =
+            'WebRTC mediaDevices.getUserMedia is unavailable in this environment.';
+          this.emit({ type: 'PRESENCE_ERROR', message, recoverable: false });
+          throw new Error(message);
+        }
+
+        const constraints = buildWebRTCMediaConstraints(
+          this.opusProfile,
+          this.videoConstraints
+        );
+        const acquiredStream = await devices.getUserMedia(constraints);
+
+        if (this.lifecycleGeneration !== startGeneration) {
+          this.stopStreamTracks(acquiredStream);
+          return;
+        }
+
+        this.stream = acquiredStream;
+        this.ownsStream = true;
+      }
+
+      if (this.lifecycleGeneration !== startGeneration) {
+        return;
+      }
+
+      this.active = true;
+      this.emit({
+        type: 'PRESENCE_STARTED',
+        mode: this.mode,
+        timestampMs: Date.now(),
+      });
+    })();
+
+    this.pendingStart = task;
+    try {
+      await task;
+    } finally {
+      if (this.pendingStart === task) {
+        this.pendingStart = null;
+      }
+    }
   }
 
   async stop(): Promise<void> {
-    if (!this.active && !this.stream) return;
+    const hadPendingStart = this.pendingStart !== null;
+    this.lifecycleGeneration++;
+
+    if (!this.active && !this.stream && !hadPendingStart) return;
 
     if (this.stopTracksOnStop && this.ownsStream && this.stream) {
-      const tracks = this.stream.getTracks?.() ?? [];
-      for (const track of tracks) {
-        track.stop?.();
-      }
+      this.stopStreamTracks(this.stream);
       this.stream = null;
+      this.ownsStream = false;
     }
 
     this.active = false;

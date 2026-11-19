@@ -6,7 +6,8 @@ import type {
 } from '../types';
 
 const CARTRIDGE_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const SEMVER_PATTERN = /^(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z.-]+)?$/;
+const SEMVER_PATTERN =
+  /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
 
 const VALID_GENRES: ReadonlySet<CartridgeGenre> = new Set([
   'arcade',
@@ -50,14 +51,27 @@ export class CartridgeManifestError extends Error {
   }
 }
 
-function parseSemverTuple(version: string): [number, number, number] | null {
+interface ParsedSemver {
+  major: number;
+  minor: number;
+  patch: number;
+  prerelease: string | null;
+}
+
+function parseSemverTuple(version: string): ParsedSemver | null {
   const match = SEMVER_PATTERN.exec(version.trim());
   if (!match) return null;
-  return [Number(match[1]), Number(match[2]), Number(match[3])];
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+    prerelease: match[4] ?? null,
+  };
 }
 
 /**
- * Returns true if `currentVersion` satisfies `>= minVersion` using semver major.minor.patch comparison.
+ * Returns true if `currentVersion` satisfies `>= minVersion` using SemVer 2.0.0
+ * major.minor.patch + prerelease precedence (build metadata ignored).
  */
 export function isVersionAtLeast(
   currentVersion: string,
@@ -67,9 +81,17 @@ export function isVersionAtLeast(
   const minimum = parseSemverTuple(minVersion);
   if (!current || !minimum) return false;
 
+  const currentParts = [current.major, current.minor, current.patch];
+  const minParts = [minimum.major, minimum.minor, minimum.patch];
   for (let i = 0; i < 3; i++) {
-    if (current[i] > minimum[i]) return true;
-    if (current[i] < minimum[i]) return false;
+    if (currentParts[i] > minParts[i]) return true;
+    if (currentParts[i] < minParts[i]) return false;
+  }
+
+  if (current.prerelease === null && minimum.prerelease !== null) return true;
+  if (current.prerelease !== null && minimum.prerelease === null) return false;
+  if (current.prerelease !== null && minimum.prerelease !== null) {
+    return current.prerelease >= minimum.prerelease;
   }
   return true;
 }
