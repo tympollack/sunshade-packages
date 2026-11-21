@@ -2,8 +2,6 @@
   "title": "sunshade-packages",
   "pages": [
     "index",
-    "architecture",
-    "setup",
     "whats-new"
   ]
 }
