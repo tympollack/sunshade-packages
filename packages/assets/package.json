@@ -1,34 +1,55 @@
 {
   "name": "@digitalcanopy/assets",
-  "version": "0.1.0",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "version": "1.0.0",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "publishConfig": {
     "access": "public"
   },
   "exports": {
     ".": {
-      "types": "./src/index.ts",
-      "default": "./src/index.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
     },
     "./manifests": {
-      "types": "./src/manifests/index.ts",
-      "default": "./src/manifests/index.ts"
+      "types": "./dist/manifests/index.d.ts",
+      "import": "./dist/manifests/index.mjs",
+      "require": "./dist/manifests/index.js"
     },
     "./resolvers": {
-      "types": "./src/resolvers/index.ts",
-      "default": "./src/resolvers/index.ts"
+      "types": "./dist/resolvers/cdn.d.ts",
+      "import": "./dist/resolvers/cdn.mjs",
+      "require": "./dist/resolvers/cdn.js"
+    },
+    "./catalog": {
+      "types": "./dist/catalog/index.d.ts",
+      "import": "./dist/catalog/index.mjs",
+      "require": "./dist/catalog/index.js"
+    },
+    "./registry": {
+      "types": "./dist/registry/index.d.ts",
+      "import": "./dist/registry/index.mjs",
+      "require": "./dist/registry/index.js"
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsup src/index.ts src/manifests/index.ts src/resolvers/cdn.ts src/catalog/index.ts src/registry/index.ts --dts --format cjs,esm",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:boundaries": "vitest run"
+    "test:boundaries": "vitest run",
+    "test:tarball": "node scripts/smoke-test-tarball.mjs",
+    "test:hot-swap": "node scripts/verify-hot-swap.mjs"
   },
   "devDependencies": {
     "@types/pngjs": "^6.0.5",
     "pngjs": "^7.0.0",
+    "tsup": "^8.5.1",
     "typescript": "^5.7.3",
     "vitest": "^3.0.5"
   }

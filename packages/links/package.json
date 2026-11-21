@@ -1,0 +1,54 @@
+{
+  "name": "@digitalcanopy/links",
+  "version": "1.0.0",
+  "description": "Universal SunShade linking client library and React hooks for URL shortening, trust scoring, and privacy-preserving telemetry",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.mjs",
+      "require": "./dist/react/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts src/react/index.ts --dts --format cjs,esm --minify",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:boundaries": "vitest run"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0 || >=19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0",
+    "react": "^19.1.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  },
+  "keywords": [
+    "sunshade",
+    "links",
+    "shortener",
+    "trust-score",
+    "telemetry",
+    "react"
+  ],
+  "author": "SunShade Systems",
+  "license": "MIT"
+}

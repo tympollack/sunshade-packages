@@ -25,8 +25,12 @@ yarn add @digitalcanopy/assets
   - `uiSpritesAtlas`: 23 UI elements (buttons, panels, icons, progress bars).
 - **Flame Coordinate Converter**: `toFlameSpriteData(manifest, frameKey)` converts manifest entries directly into `[srcPosition, srcSize, anchor]` tuples for Flutter Flame `SpriteComponent.fromFrame`.
 - **Strict TypeScript Keys**: Exported constant arrays and union types (`PLAYING_CARDS`, `ISOMETRIC_TILES`, `MODULAR_CHARACTERS`, `UI_SPRITES`) for IDE autocomplete.
+- **Database Catalog Schema & Ingestion**: Direct integration with PostgreSQL `catalog.assets` table via `@digitalcanopy/assets/catalog`, complete with canonical seed assets and query loaders.
+- **Dynamic Hot-Swapping Registry**: Drop-in custom IP hot-swapping at runtime via `@digitalcanopy/assets/registry` (`AssetRegistry`, `assetRegistry`), supporting pack overrides, single-key overrides, custom Flame frames/anchors, reactive pub/sub event streams, and graceful fallback to baseline Kenney assets.
 
 ## Usage
+
+### 1. Canonical CDN Resolvers & Atlas Manifests
 
 ```typescript
 import {
@@ -43,4 +47,55 @@ const cardUrl = getKenneyCardUrl('card-spades-10');
 // Map coordinates for Flame engine
 const spriteData = toFlameSpriteData(playingCardsAtlas, 'card-spades-a');
 // => { srcPosition: [0, 0], srcSize: [140, 190], anchor: [0.5, 0.5] }
+```
+
+### 2. Drop-In Custom IP Hot-Swapping
+
+```typescript
+import {
+  assetRegistry,
+  playingCardsAtlas,
+} from '@digitalcanopy/assets';
+
+// Hot-swap an entire pack with a custom IP theme
+assetRegistry.registerPackOverride('cards', 'https://cdn.digitalcanopy.io/custom-ip/cyberpunk-cards');
+
+// Hot-swap a single legendary asset with custom high-DPI frame and anchor point
+assetRegistry.registerOverride('card-spades-a', {
+  url: 'https://cdn.digitalcanopy.io/custom-ip/cyberpunk-cards/holo_ace.svg',
+  frame: { x: 0, y: 0, w: 280, h: 380 },
+  anchor: { ax: 0.5, ay: 0.5 },
+});
+
+// Resolves to custom IP URL automatically
+const cardUrl = assetRegistry.resolveCardUrl('card-spades-a');
+// => "https://cdn.digitalcanopy.io/custom-ip/cyberpunk-cards/holo_ace.svg"
+
+// Unmodified cards resolve under the custom pack override
+const kingUrl = assetRegistry.resolveCardUrl('card-hearts-k');
+// => "https://cdn.digitalcanopy.io/custom-ip/cyberpunk-cards/card-hearts-k.png"
+
+// Flame engine sprite coordinates dynamically adapt to the custom IP frame
+const flameData = assetRegistry.resolveFlameSpriteData(playingCardsAtlas, 'card-spades-a');
+// => { srcPosition: [0, 0], srcSize: [280, 380], anchor: [0.5, 0.5] }
+
+// Subscribe to real-time hot-swap events to trigger reactive re-renders
+const unsubscribe = assetRegistry.onSwap((event) => {
+  console.log('Assets hot-swapped:', event.type, event.keys);
+});
+```
+
+### 3. Database Catalog Integration (`catalog.assets`)
+
+```typescript
+import { loadCatalogAssets, assetRegistry } from '@digitalcanopy/assets';
+
+// Load catalog assets scoped to War: Second Wind (WSW) from PostgreSQL or fallback cache
+const wswAssets = await loadCatalogAssets({
+  app_scope: 'wsw',
+  fallbackToSeed: true,
+});
+
+// Ingest catalog directly into the active hot-swapping registry
+assetRegistry.loadCatalog(wswAssets);
 ```

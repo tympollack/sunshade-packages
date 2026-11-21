@@ -1,0 +1,72 @@
+{
+  "name": "@digitalcanopy/cadence",
+  "version": "0.1.0",
+  "description": "Headless pacing state machine, pluggable micro-interaction widget deck, and feed virtualization adapters that cap doomscrolling and introduce intentional off-ramps",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.mjs",
+      "require": "./dist/core/index.js"
+    },
+    "./widgets": {
+      "types": "./dist/widgets/index.d.ts",
+      "import": "./dist/widgets/index.mjs",
+      "require": "./dist/widgets/index.js"
+    },
+    "./adapters": {
+      "types": "./dist/adapters/index.d.ts",
+      "import": "./dist/adapters/index.mjs",
+      "require": "./dist/adapters/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts src/core/index.ts src/widgets/index.ts src/adapters/index.ts --dts --format cjs,esm --external react --external react-dom --minify",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:boundaries": "vitest run"
+  },
+  "dependencies": {
+    "@digitalcanopy/ui": "*"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0 || >=19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0",
+    "react": "^19.1.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  },
+  "keywords": [
+    "sunshade",
+    "cadence",
+    "pacing",
+    "anti-doomscroll",
+    "widgets",
+    "react"
+  ],
+  "author": "SunShade Systems",
+  "license": "MIT"
+}

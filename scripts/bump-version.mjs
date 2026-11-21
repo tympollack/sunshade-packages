@@ -20,6 +20,12 @@ if (targetPkg === 'all' || targetPkg === '@digitalcanopy/supabase') {
 if (targetPkg === 'all' || targetPkg === '@digitalcanopy/assets') {
   content += `"@digitalcanopy/assets": ${increment}\n`;
 }
+if (targetPkg === 'all' || targetPkg === '@digitalcanopy/notifications') {
+  content += `"@digitalcanopy/notifications": ${increment}\n`;
+}
+if (targetPkg === 'all' || targetPkg === '@digitalcanopy/cadence') {
+  content += `"@digitalcanopy/cadence": ${increment}\n`;
+}
 content += `---\n\nManual ${increment} release for ${targetPkg}\n`;
 
 if (!fs.existsSync('.changeset')) {

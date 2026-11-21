@@ -1,0 +1,66 @@
+{
+  "name": "@digitalcanopy/dramacast",
+  "version": "0.1.0",
+  "description": "DramaCast Director Engine, Drama Index scorer, compact vector telemetry codec, timeline scrub synchronizer, and WebRTC PiP creator presence track",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    },
+    "./cartridge": {
+      "types": "./dist/cartridge/index.d.ts",
+      "import": "./dist/cartridge/index.mjs",
+      "require": "./dist/cartridge/index.js"
+    },
+    "./director": {
+      "types": "./dist/director/index.d.ts",
+      "import": "./dist/director/index.mjs",
+      "require": "./dist/director/index.js"
+    },
+    "./telemetry": {
+      "types": "./dist/telemetry/index.d.ts",
+      "import": "./dist/telemetry/index.mjs",
+      "require": "./dist/telemetry/index.js"
+    },
+    "./presence": {
+      "types": "./dist/presence/index.d.ts",
+      "import": "./dist/presence/index.mjs",
+      "require": "./dist/presence/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts src/cartridge/index.ts src/director/index.ts src/telemetry/index.ts src/presence/index.ts --dts --format cjs,esm --minify",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:boundaries": "vitest run"
+  },
+  "dependencies": {
+    "@digitalcanopy/reels-engine": "*"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.1",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  },
+  "keywords": [
+    "sunshade",
+    "dramacast",
+    "director-engine",
+    "telemetry-codec",
+    "webrtc-pip",
+    "reels-engine"
+  ],
+  "author": "SunShade Systems",
+  "license": "MIT"
+}
