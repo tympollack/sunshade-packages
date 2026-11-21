@@ -257,6 +257,7 @@ export function cadenceReducer(
     case 'RESET_SESSION': {
       return {
         ...state,
+        config: action.config ? resolveCadenceConfig(action.config) : state.config,
         unitsConsumed: 0,
         chapterIndex: 0,
         lastActiveTimestamp: now,

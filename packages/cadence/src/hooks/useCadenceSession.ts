@@ -99,15 +99,25 @@ export function useCadenceSession(
   const persistEnabled = options?.persist !== false;
   const getNow = useRef(options?.now ?? (() => Date.now()));
   getNow.current = options?.now ?? (() => Date.now());
+  const defaultAdaptersRef = useRef<Map<string, CadenceStorageAdapter>>(new Map());
 
   const storageAdapter = useMemo<CadenceStorageAdapter | null>(() => {
     if (!persistEnabled || options?.storage === null) {
       return null;
     }
-    return (
-      options?.storage ??
-      createLocalStorageAdapter({ keyPrefix: options?.storageKeyPrefix })
-    );
+    if (options?.storage) {
+      return options.storage;
+    }
+    const cacheKey =
+      options?.storageKeyPrefix === undefined
+        ? '__default__'
+        : `prefix:${options.storageKeyPrefix}`;
+    let cached = defaultAdaptersRef.current.get(cacheKey);
+    if (!cached) {
+      cached = createLocalStorageAdapter({ keyPrefix: options?.storageKeyPrefix });
+      defaultAdaptersRef.current.set(cacheKey, cached);
+    }
+    return cached;
   }, [persistEnabled, options?.storage, options?.storageKeyPrefix]);
 
   const explicitConfig = extractConfigFromOptions(options);
@@ -135,10 +145,48 @@ export function useCadenceSession(
   );
 
   const [, setTick] = useState(0);
+  const hydratedAdapterRef = useRef<CadenceStorageAdapter | null>(storageAdapter);
+  const adapterChangedThisRender =
+    storageAdapter !== null && hydratedAdapterRef.current !== storageAdapter;
+  const prevCompleteRef = useRef(state.isChapterComplete);
+
+  // Re-hydrate from the new storageAdapter when switching apps/namespaces without unmounting,
+  // before any persistence effects run so previous app state never overwrites the new namespace.
+  useEffect(() => {
+    if (!adapterChangedThisRender || !storageAdapter) return;
+    hydratedAdapterRef.current = storageAdapter;
+    const now = getNow.current();
+    const storedConfig = storageAdapter?.loadConfig() ?? {};
+    const mergedInitialConfig = { ...storedConfig, ...explicitConfig };
+    const storedMetrics = storageAdapter?.loadMetrics();
+    const nextInitial = createInitialSessionState(mergedInitialConfig, now);
+    const nextHydrated = storedMetrics
+      ? cadenceReducer(nextInitial, {
+          type: 'HYDRATE_SESSION',
+          metrics: storedMetrics,
+          now,
+        })
+      : nextInitial;
+    prevCompleteRef.current = nextHydrated.isChapterComplete;
+
+    dispatch({
+      type: 'RESET_SESSION',
+      config: mergedInitialConfig,
+      now,
+    });
+    if (storedMetrics) {
+      dispatch({
+        type: 'HYDRATE_SESSION',
+        metrics: storedMetrics,
+        now,
+      });
+    }
+  }, [adapterChangedThisRender, storageAdapter]);
 
   // Sync config updates if caller changes unitLimit, mode, cooldownMinutes, or enabledCategories
   const categoriesKey = explicitConfig.enabledCategories?.join(',') ?? '';
   useEffect(() => {
+    if (adapterChangedThisRender) return;
     if (hasExplicitConfig) {
       dispatch({
         type: 'UPDATE_CONFIG',
@@ -147,6 +195,7 @@ export function useCadenceSession(
       });
     }
   }, [
+    adapterChangedThisRender,
     hasExplicitConfig,
     explicitConfig.unitLimit,
     explicitConfig.mode,
@@ -158,9 +207,10 @@ export function useCadenceSession(
   // Persist explicit config preferences locally when provided or changed
   const stateCategoriesKey = state.config.enabledCategories.join(',');
   useEffect(() => {
-    if (!storageAdapter || !hasExplicitConfig) return;
+    if (adapterChangedThisRender || !storageAdapter || !hasExplicitConfig) return;
     storageAdapter.saveConfig(state.config);
   }, [
+    adapterChangedThisRender,
     storageAdapter,
     hasExplicitConfig,
     state.config.unitLimit,
@@ -172,7 +222,7 @@ export function useCadenceSession(
 
   // Persist metrics snapshot locally on change
   useEffect(() => {
-    if (!storageAdapter) return;
+    if (adapterChangedThisRender || !storageAdapter) return;
     storageAdapter.saveMetrics({
       unitsConsumed: state.unitsConsumed,
       chapterIndex: state.chapterIndex,
@@ -183,6 +233,7 @@ export function useCadenceSession(
       snoozedUntilUnit: state.snoozedUntilUnit,
     });
   }, [
+    adapterChangedThisRender,
     storageAdapter,
     state.unitsConsumed,
     state.chapterIndex,
@@ -194,16 +245,17 @@ export function useCadenceSession(
   ]);
 
   // Trigger onChapterComplete callback when transitioning from false -> true
-  const prevCompleteRef = useRef(state.isChapterComplete);
   const onChapterCompleteRef = useRef(options?.onChapterComplete);
   onChapterCompleteRef.current = options?.onChapterComplete;
 
   useEffect(() => {
+    if (adapterChangedThisRender) return;
     if (!prevCompleteRef.current && state.isChapterComplete) {
       onChapterCompleteRef.current?.(selectSessionMetrics(state));
     }
     prevCompleteRef.current = state.isChapterComplete;
   }, [
+    adapterChangedThisRender,
     state.isChapterComplete,
     state.unitsConsumed,
     state.chapterIndex,

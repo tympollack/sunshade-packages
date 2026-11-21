@@ -346,6 +346,40 @@ export class ReactionTimelineSynchronizer {
     if (!targetFrame) {
       throw new Error(`Roll index ${rollIndex} not found in telemetry stream.`);
     }
-    return this.seek(targetFrame.tMs);
+    if (!this.timelinePlan) {
+      return this.seek(targetFrame.tMs);
+    }
+
+    for (const kf of this.timelinePlan.keyframes) {
+      const window = this.clipWindows.get(kf.keyframeId);
+      if (
+        window &&
+        targetFrame.tMs >= window.sourceStartMs &&
+        targetFrame.tMs <= window.sourceEndMs
+      ) {
+        const span = window.sourceEndMs - window.sourceStartMs;
+        const progress =
+          span > 0 ? clamp((targetFrame.tMs - window.sourceStartMs) / span, 0, 1) : 0;
+        const candidatePlayheadMs = kf.startMs + progress * kf.durationMs;
+        const activeKf = findActiveKeyframe(
+          this.timelinePlan.keyframes,
+          candidatePlayheadMs
+        );
+        if (
+          activeKf &&
+          (activeKf.keyframeId === kf.keyframeId ||
+            Math.abs(
+              this.mapReelToSourceTimeMs(candidatePlayheadMs, activeKf) -
+                targetFrame.tMs
+            ) <= 1e-3)
+        ) {
+          return this.seek(candidatePlayheadMs);
+        }
+      }
+    }
+
+    throw new Error(
+      `Roll index ${rollIndex} is not included in the edited reel timeline.`
+    );
   }
 }

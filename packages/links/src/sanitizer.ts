@@ -24,6 +24,21 @@ export const INVASIVE_TRACKING_PARAMS = new Set([
 ]);
 
 const DANGEROUS_PROTOCOLS = /^(javascript|vbscript|data):/i;
+const CONTROL_AND_WHITESPACE_CHARS = /[\u0000-\u0020\u007f]+/g;
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]+/g;
+
+function isDangerousScheme(candidate: string): boolean {
+  const collapsed = candidate.replace(CONTROL_AND_WHITESPACE_CHARS, '');
+  if (DANGEROUS_PROTOCOLS.test(collapsed)) {
+    return true;
+  }
+  try {
+    const parsed = new URL(candidate, 'https://sanitizer.invalid');
+    return DANGEROUS_PROTOCOLS.test(parsed.protocol);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Checks whether a URL contains invasive surveillance tokens.
@@ -57,11 +72,11 @@ export function sanitizeUrl(rawUrl: string): string {
     return '';
   }
 
-  const trimmed = rawUrl.trim();
+  const trimmed = rawUrl.replace(CONTROL_CHARS, '').trim();
   if (!trimmed) return '';
 
-  // Neutralize executable / script injection schemes
-  if (DANGEROUS_PROTOCOLS.test(trimmed)) {
+  // Neutralize executable / script injection schemes (including whitespace/control-obfuscated ones)
+  if (isDangerousScheme(rawUrl) || isDangerousScheme(trimmed)) {
     return 'about:blank';
   }
 
@@ -91,6 +106,10 @@ export function sanitizeUrl(rawUrl: string): string {
 
     for (const key of keysToRemove) {
       searchParams.delete(key);
+    }
+
+    if (keysToRemove.length === 0) {
+      return `${pathPart}?${queryPart}${hash}`;
     }
 
     const cleanQuery = searchParams.toString();

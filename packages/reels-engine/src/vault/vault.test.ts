@@ -73,8 +73,13 @@ class MockSqliteDb implements ISqliteExecutor {
     }
     if (trimmed.startsWith('DELETE')) {
       const [stub_id] = params as [string];
-      const existed = this.rows.delete(stub_id);
-      return { changes: existed ? 1 : 0 };
+      const existing = this.rows.get(stub_id);
+      if (!existing) return { changes: 0 };
+      if (trimmed.includes("STATUS != 'RESOLVED'") && existing.status === 'resolved') {
+        return { changes: 0 };
+      }
+      this.rows.delete(stub_id);
+      return { changes: 1 };
     }
     return { changes: 0 };
   }
@@ -572,5 +577,89 @@ describe('@digitalcanopy/reels-engine Bonus Stub Vault & Storage Adapters', () =
 
     expect(repeatClaim).toEqual(firstClaim);
     expect(await reopenedVault.listActiveStubs()).toHaveLength(0);
+  });
+
+  it('requires an explicit vaultSecret for durable IndexedDB and SQLite adapters', () => {
+    const idb = new IndexedDbStubAdapter({ indexedDB: createMockIdbFactory() });
+    const sqlite = createExpoSqliteStubAdapter(new MockSqliteDb());
+
+    expect(() => new StubVault(idb)).toThrow(/explicit non-empty vaultSecret/i);
+    expect(() => new StubVault(sqlite, { vaultSecret: '   ' })).toThrow(
+      /explicit non-empty vaultSecret/i
+    );
+  });
+
+  it('does not purge already-resolved stubs during SQLite or IndexedDB expiry cleanup', async () => {
+    const sqliteDb = new MockSqliteDb();
+    const sqliteAdapter = createExpoSqliteStubAdapter(sqliteDb);
+    const vault = new StubVault(sqliteAdapter, { vaultSecret: 'durable-key' });
+    const roll = await generateDeterministicRoll('purge-seed', 'm-purge', 1);
+
+    const banked = await vault.bankRollStub({
+      stubId: 'sqlite-resolved-before-expiry',
+      matchId: 'm-purge',
+      cartridgeId: 'VOID-RUNNER',
+      roll,
+      expiresAt: '2026-11-10T00:00:00.000Z',
+    });
+
+    await vault.resolveStub(banked.stubId, undefined, '2026-11-09T12:00:00.000Z');
+
+    const purged = await vault.purgeExpired('2026-11-15T00:00:00.000Z');
+    expect(purged).toBe(0);
+    expect((await sqliteAdapter.getStub(banked.stubId))?.status).toBe('resolved');
+  });
+
+  it('preserves surrounding whitespace in vaultSecret for preexisting sealed payloads', async () => {
+    const adapter = new MemoryStubAdapter();
+    const paddedSecret = ' legacy-padded-key ';
+    const legacyVault = new StubVault(adapter, { vaultSecret: paddedSecret });
+    const roll = await generateDeterministicRoll('ws-seed', 'm-ws', 2);
+
+    const banked = await legacyVault.bankRollStub({
+      stubId: 'ws-stub-1',
+      matchId: 'm-ws',
+      cartridgeId: 'VOID-RUNNER',
+      roll,
+    });
+
+    const trimmedSecretVault = new StubVault(adapter, {
+      vaultSecret: 'legacy-padded-key',
+    });
+    await expect(trimmedSecretVault.resolveStub(banked.stubId)).rejects.toThrow();
+
+    const restoredVault = new StubVault(adapter, { vaultSecret: paddedSecret });
+    const resolved = await restoredVault.resolveStub(banked.stubId);
+    expect(resolved.stubId).toBe(banked.stubId);
+    expect(resolved.rollIndex).toBe(2);
+    expect(resolved.selectedSubSeed).toBeTruthy();
+  });
+
+  it('counts purged expired SQLite rows when runAsync omits changes', async () => {
+    const baseDb = new MockSqliteDb();
+    const omitChangesDb: ISqliteExecutor = {
+      execAsync: (sql) => baseDb.execAsync(sql),
+      getFirstAsync: (sql, params) => baseDb.getFirstAsync(sql, params),
+      getAllAsync: (sql) => baseDb.getAllAsync(sql),
+      async runAsync(sql, params) {
+        await baseDb.runAsync(sql, params);
+        return {};
+      },
+    };
+    const sqliteAdapter = createExpoSqliteStubAdapter(omitChangesDb);
+    const vault = new StubVault(sqliteAdapter, { vaultSecret: 'durable-key' });
+    const roll = await generateDeterministicRoll('omit-changes', 'm-omit', 1);
+
+    await vault.bankRollStub({
+      stubId: 'sqlite-expired-omit-changes',
+      matchId: 'm-omit',
+      cartridgeId: 'VOID-RUNNER',
+      roll,
+      expiresAt: '2026-11-10T00:00:00.000Z',
+    });
+
+    const purged = await vault.purgeExpired('2026-11-15T00:00:00.000Z');
+    expect(purged).toBe(1);
+    expect(await sqliteAdapter.getStub('sqlite-expired-omit-changes')).toBeNull();
   });
 });

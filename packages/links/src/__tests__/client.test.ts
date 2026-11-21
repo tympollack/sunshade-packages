@@ -68,6 +68,20 @@ describe('LinksClient SDK', () => {
       });
     }).toThrow(/Insecure transport: apiKey cannot be transmitted over plaintext HTTP/);
 
+    expect(() => {
+      new LinksClient({
+        baseUrl: 'HTTP://localhost.attacker.example',
+        apiKey: 'secret_token_123',
+      });
+    }).toThrow(/Insecure transport: apiKey cannot be transmitted over plaintext HTTP/);
+
+    expect(() => {
+      new LinksClient({
+        baseUrl: 'http://attacker.example/localhost',
+        apiKey: 'secret_token_123',
+      });
+    }).toThrow(/Insecure transport: apiKey cannot be transmitted over plaintext HTTP/);
+
     // Allows http on localhost
     expect(() => {
       new LinksClient({

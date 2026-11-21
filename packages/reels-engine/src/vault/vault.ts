@@ -10,7 +10,12 @@ import {
   sealStubRollPayload,
   unsealStubRollPayload,
 } from './crypto';
-import { isStubExpired, type IStubStorageAdapter } from './adapters';
+import {
+  ExpoSqliteStubAdapter,
+  IndexedDbStubAdapter,
+  isStubExpired,
+  type IStubStorageAdapter,
+} from './adapters';
 
 export * from './crypto';
 export * from './adapters';
@@ -42,8 +47,19 @@ export class StubVault {
 
   constructor(adapter: IStubStorageAdapter, options?: StubVaultOptions) {
     this.adapter = adapter;
-    this.vaultSecret =
-      options?.vaultSecret ?? getDefaultEphemeralVaultSecret();
+    const rawSecret = options?.vaultSecret;
+    const hasNonEmptySecret = Boolean(rawSecret && rawSecret.trim().length > 0);
+    const isDurableAdapter =
+      adapter instanceof IndexedDbStubAdapter ||
+      adapter instanceof ExpoSqliteStubAdapter;
+
+    if (isDurableAdapter && !hasNonEmptySecret) {
+      throw new Error(
+        `StubVault requires an explicit non-empty vaultSecret when using durable adapter "${adapter.constructor.name}".`
+      );
+    }
+
+    this.vaultSecret = hasNonEmptySecret ? rawSecret! : getDefaultEphemeralVaultSecret();
   }
 
   getStorageAdapter(): IStubStorageAdapter {

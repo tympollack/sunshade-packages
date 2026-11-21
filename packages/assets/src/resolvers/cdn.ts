@@ -11,7 +11,7 @@ export const KENNEY_CDN_BASE = CDN_BASE_URL;
  */
 export function getKenneyAssetUrl(pack: string, assetPath: string, ext?: string): string {
   const cleanPack = pack.replace(/^\/+|\/+$/g, '');
-  let cleanPath = assetPath.replace(/^\/+/, '');
+  const cleanPath = assetPath.replace(/^\/+|\/+$/g, '');
 
   if (ext) {
     const cleanExt = ext.startsWith('.') ? ext.slice(1) : ext;
@@ -26,19 +26,26 @@ export function getKenneyAssetUrl(pack: string, assetPath: string, ext?: string)
   return `${CDN_BASE_URL}/${cleanPack}/${finalPath}`;
 }
 
+function appendOrReplaceExtension(cleanKey: string, ext: string): string {
+  const cleanExt = ext.startsWith('.') ? ext.slice(1) : ext;
+  if (cleanKey.toLowerCase().endsWith(`.${cleanExt.toLowerCase()}`)) {
+    return cleanKey;
+  }
+  const baseKey = cleanKey.replace(/\.[a-zA-Z0-9]+$/, '');
+  return `${baseKey}.${cleanExt}`;
+}
+
 export function getKenneyAudioUrl(
   soundName: string,
   ext: 'ogg' | 'wav' | 'mp3' | string = 'ogg'
 ): string {
-  const cleanName = soundName.replace(/^\/+|\/+$/g, '').replace(/\.[a-zA-Z0-9]+$/, '');
-  const cleanExt = ext.startsWith('.') ? ext.slice(1) : ext;
-  return `${CDN_BASE_URL}/ui-pack/sounds/${cleanName}.${cleanExt}`;
+  const cleanName = soundName.replace(/^\/+|\/+$/g, '');
+  return `${CDN_BASE_URL}/ui-pack/sounds/${appendOrReplaceExtension(cleanName, ext)}`;
 }
 
 export function getKenneyCardUrl(cardKey: string, ext: string = 'png'): string {
-  const cleanKey = cardKey.replace(/^\/+|\/+$/g, '').replace(/\.[a-zA-Z0-9]+$/, '');
-  const cleanExt = ext.startsWith('.') ? ext.slice(1) : ext;
-  return `${CDN_BASE_URL}/cards/${cleanKey}.${cleanExt}`;
+  const cleanKey = cardKey.replace(/^\/+|\/+$/g, '');
+  return `${CDN_BASE_URL}/cards/${appendOrReplaceExtension(cleanKey, ext)}`;
 }
 
 export function getKenneyCharacterUrl(
@@ -46,7 +53,7 @@ export function getKenneyCharacterUrl(
   itemKey: string,
   ext: string = 'png'
 ): string {
-  const cleanKey = itemKey.replace(/^\/+|\/+$/g, '').replace(/\.[a-zA-Z0-9]+$/, '');
-  const cleanExt = ext.startsWith('.') ? ext.slice(1) : ext;
-  return `${CDN_BASE_URL}/modular-characters/${category}/${cleanKey}.${cleanExt}`;
+  const cleanCategory = category.replace(/^\/+|\/+$/g, '');
+  const cleanKey = itemKey.replace(/^\/+|\/+$/g, '');
+  return `${CDN_BASE_URL}/modular-characters/${cleanCategory}/${appendOrReplaceExtension(cleanKey, ext)}`;
 }

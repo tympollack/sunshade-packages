@@ -88,15 +88,31 @@ export const BUILTIN_WIDGET_DEFINITIONS: readonly CadenceWidgetDefinition[] = [
   },
 ];
 
-const widgetRegistry = new Map<string, CadenceWidgetDefinition>();
+const WIDGET_REGISTRY_SYMBOL = Symbol.for('@digitalcanopy/cadence/widgetRegistry');
+
+type GlobalWithWidgetRegistry = typeof globalThis & {
+  [WIDGET_REGISTRY_SYMBOL]?: Map<string, CadenceWidgetDefinition>;
+};
+
+function getWidgetRegistryMap(): Map<string, CadenceWidgetDefinition> {
+  const g = globalThis as GlobalWithWidgetRegistry;
+  if (!g[WIDGET_REGISTRY_SYMBOL]) {
+    const map = new Map<string, CadenceWidgetDefinition>();
+    for (const def of BUILTIN_WIDGET_DEFINITIONS) {
+      map.set(def.id, def);
+    }
+    g[WIDGET_REGISTRY_SYMBOL] = map;
+  }
+  return g[WIDGET_REGISTRY_SYMBOL];
+}
+
+const widgetRegistry = getWidgetRegistryMap();
 
 function seedBuiltinWidgets(): void {
   for (const def of BUILTIN_WIDGET_DEFINITIONS) {
     widgetRegistry.set(def.id, def);
   }
 }
-
-seedBuiltinWidgets();
 
 /**
  * Registers or updates a widget definition in the Cadence widget deck.
