@@ -37,3 +37,9 @@ jobs:
 
       - name: Run boundary tests
         run: npm run test:boundaries
+
+      - name: Smoke test packed @digitalcanopy/assets tarball
+        run: npm --workspace=@digitalcanopy/assets run test:tarball
+
+      - name: Smoke test packed @digitalcanopy/links & @digitalcanopy/cadence tarballs
+        run: node scripts/smoke-test-tarballs.mjs

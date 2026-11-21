@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "es2020",
+    "lib": ["esnext", "dom"],
+    "allowJs": false,
+    "skipLibCheck": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "declaration": true,
+    "declarationMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@digitalcanopy/reels-engine": ["../reels-engine/src/index.ts"],
+      "@digitalcanopy/reels-engine/*": ["../reels-engine/src/*/index.ts"],
+      "@digitalcanopy/cadence": ["../cadence/src/core/index.ts"],
+      "@digitalcanopy/cadence/core": ["../cadence/src/core/index.ts"]
+    }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
