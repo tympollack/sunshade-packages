@@ -1,6 +1,6 @@
 {
   "name": "@digitalcanopy/cadence",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Headless pacing state machine, pluggable micro-interaction widget deck, and feed virtualization adapters that cap doomscrolling and introduce intentional off-ramps",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",

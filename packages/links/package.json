@@ -1,6 +1,6 @@
 {
   "name": "@digitalcanopy/links",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Universal SunShade linking client library and React hooks for URL shortening, trust scoring, and privacy-preserving telemetry",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
