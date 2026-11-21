@@ -222,4 +222,18 @@ export function createAssetRegistry(): AssetRegistry {
   return new AssetRegistry();
 }
 
-export const assetRegistry = createAssetRegistry();
+const DEFAULT_REGISTRY_SYMBOL = Symbol.for('@digitalcanopy/assets/defaultRegistry');
+
+type GlobalWithAssetRegistry = typeof globalThis & {
+  [DEFAULT_REGISTRY_SYMBOL]?: AssetRegistry;
+};
+
+function getDefaultAssetRegistry(): AssetRegistry {
+  const globalScope = globalThis as GlobalWithAssetRegistry;
+  if (!globalScope[DEFAULT_REGISTRY_SYMBOL]) {
+    globalScope[DEFAULT_REGISTRY_SYMBOL] = createAssetRegistry();
+  }
+  return globalScope[DEFAULT_REGISTRY_SYMBOL];
+}
+
+export const assetRegistry: AssetRegistry = getDefaultAssetRegistry();
