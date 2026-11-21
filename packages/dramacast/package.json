@@ -1,6 +1,6 @@
 {
   "name": "@digitalcanopy/dramacast",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "DramaCast Director Engine, Drama Index scorer, compact vector telemetry codec, timeline scrub synchronizer, and WebRTC PiP creator presence track",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
