@@ -262,5 +262,27 @@ describe('@digitalcanopy/dramacast Vector Telemetry Codec & Scrub Synchronizer',
     sync.play();
     const stepped = sync.step(1000);
     expect(stepped.playheadMs).toBeCloseTo(climaxKf.startMs + 750);
+
+    // Jumping to a roll whose source window was cut from the edited reel rejects instead of seeking to raw sourceTimeMs
+    const cutSync = new ReactionTimelineSynchronizer({
+      frames: [
+        ...frames,
+        {
+          seq: 2,
+          tMs: 25000,
+          rollIndex: 2,
+          winProbability: 0.9,
+          dramaIndex: 90,
+          score: 2000,
+          flags: 0,
+        },
+      ],
+      timelinePlan: plan,
+      sourceClipWindows: {
+        [plan.keyframes[0].keyframeId]: { sourceStartMs: 0, sourceEndMs: 5000 },
+        [plan.keyframes[1].keyframeId]: { sourceStartMs: 9000, sourceEndMs: 12000 },
+      },
+    });
+    expect(() => cutSync.jumpToRoll(2)).toThrow(/not included in the edited reel timeline/i);
   });
 });

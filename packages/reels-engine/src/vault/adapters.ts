@@ -426,29 +426,31 @@ export class IndexedDbStubAdapter implements IStubStorageAdapter {
         return count;
       }
 
-      const all = await this.getAllRecords();
-      const expiredIds = all
-        .filter(
-          (rec) =>
-            rec.status !== 'resolved' &&
-            isStubExpired(rec.stub.expiresAt, nowMs)
-        )
-        .map((rec) => rec.stub.stubId);
-
-      if (expiredIds.length === 0) return 0;
-
       const db = await this.openDatabase();
-      await new Promise<void>((resolve, reject) => {
+      const purgedCount = await new Promise<number>((resolve, reject) => {
         const tx = db.transaction(this.storeName, 'readwrite');
         const store = tx.objectStore(this.storeName);
-        for (const id of expiredIds) {
-          store.delete(id);
-        }
-        tx.oncomplete = () => resolve();
+        const allReq = store.getAll() as IDBRequest<StoredStubRecord[]>;
+        let deleted = 0;
+
+        allReq.onsuccess = () => {
+          const all = allReq.result ?? [];
+          for (const rec of all) {
+            if (
+              rec.status !== 'resolved' &&
+              isStubExpired(rec.stub.expiresAt, nowMs)
+            ) {
+              store.delete(rec.stub.stubId);
+              deleted++;
+            }
+          }
+        };
+        allReq.onerror = () => reject(allReq.error);
+        tx.oncomplete = () => resolve(deleted);
         tx.onerror = () => reject(tx.error);
       });
 
-      return expiredIds.length;
+      return purgedCount;
     });
   }
 }
@@ -615,11 +617,13 @@ export class ExpoSqliteStubAdapter implements IStubStorageAdapter {
       let purged = 0;
       for (const row of rows) {
         if (isStubExpired(row.expires_at, nowMs)) {
-          await this.db.runAsync(
-            `DELETE FROM ${this.tableName} WHERE stub_id = ?;`,
+          const res = await this.db.runAsync(
+            `DELETE FROM ${this.tableName} WHERE stub_id = ? AND status != 'resolved';`,
             [row.stub_id]
           );
-          purged++;
+          if ((res.changes ?? 0) > 0) {
+            purged++;
+          }
         }
       }
       return purged;

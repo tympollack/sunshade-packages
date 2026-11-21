@@ -135,6 +135,43 @@ describe('Baseline Micro-Interaction Widgets (STORY-CADENCE-WIDGETS)', () => {
     });
   });
 
+  it('ValeriePollWidget still invokes callbacks when window.localStorage getter throws SecurityError', () => {
+    const onComplete = vi.fn();
+    const onSubmitAnonymous = vi.fn();
+    const originalDescriptor = Object.getOwnPropertyDescriptor(window, 'localStorage');
+
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      get() {
+        throw new DOMException('Access is denied for this document.', 'SecurityError');
+      },
+    });
+
+    try {
+      render(
+        <ValeriePollWidget
+          onComplete={onComplete}
+          onSubmitAnonymous={onSubmitAnonymous}
+          poll={{
+            id: 'poll-blocked-storage',
+            topic: 'Civic',
+            question: 'Support shaded stops?',
+            options: [{ id: 'yes', label: 'Yes' }],
+          }}
+        />
+      );
+
+      fireEvent.click(screen.getByTestId('valerie-poll-option-yes'));
+
+      expect(onSubmitAnonymous).toHaveBeenCalledTimes(1);
+      expect(onComplete).toHaveBeenCalledTimes(1);
+    } finally {
+      if (originalDescriptor) {
+        Object.defineProperty(window, 'localStorage', originalDescriptor);
+      }
+    }
+  });
+
   it('PuzzleWidget completes in a single tap on the matching missing piece', () => {
     const onComplete = vi.fn();
     render(

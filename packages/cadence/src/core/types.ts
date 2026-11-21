@@ -113,6 +113,7 @@ export type CadenceAction =
     }
   | {
       type: 'RESET_SESSION';
+      config?: Partial<CadenceConfig>;
       now?: number;
     }
   | {

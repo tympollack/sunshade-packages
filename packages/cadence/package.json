@@ -36,7 +36,7 @@
     }
   },
   "scripts": {
-    "build": "tsup src/index.ts src/core/index.ts src/widgets/index.ts src/adapters/index.ts --dts --format cjs,esm --external react --external react-dom --minify",
+    "build": "tsup",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:boundaries": "vitest run"

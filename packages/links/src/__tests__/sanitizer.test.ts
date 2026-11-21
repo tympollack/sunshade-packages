@@ -59,6 +59,15 @@ describe('Privacy Sanitizer (sanitizeUrl & hasSurveillanceTokens)', () => {
     expect(sanitizeUrl('JAVASCRIPT:void(0)')).toBe('about:blank');
     expect(sanitizeUrl('vbscript:msgbox(1)')).toBe('about:blank');
     expect(sanitizeUrl('data:text/html,<script>alert(1)</script>')).toBe('about:blank');
+    expect(sanitizeUrl('java\tscript:alert(1)')).toBe('about:blank');
+    expect(sanitizeUrl('\u0001javascript:alert(1)')).toBe('about:blank');
+    expect(sanitizeUrl('java\nscript:alert(1)')).toBe('about:blank');
+    expect(sanitizeUrl('  \tdata:text/html,hi')).toBe('about:blank');
+  });
+
+  it('preserves tracker-free signed query strings verbatim without reserializing bytes', () => {
+    const signedUrl = 'https://cdn.sunshade.icu/download?file=hello%20world.zip&flag&sig=abc%2B123~#top';
+    expect(sanitizeUrl(signedUrl)).toBe(signedUrl);
   });
 
   it('preserves protocol-relative external URLs', () => {

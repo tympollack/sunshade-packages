@@ -332,4 +332,51 @@ describe('useCadenceSession Consumer Hook (TASK-CADENCE-ENGINE-HOOK)', () => {
     expect(remounted.result.current.chapterIndex).toBe(0);
     expect(remounted.result.current.currentCount).toBe(0);
   });
+
+  it('rehydrates instead of overwriting when storageKeyPrefix switches without unmounting', () => {
+    const sharedMemory = createMemoryStorage();
+    const adapterA = createLocalStorageAdapter({
+      keyPrefix: 'app:cozy',
+      storage: sharedMemory,
+    });
+    const adapterB = createLocalStorageAdapter({
+      keyPrefix: 'app:patchwork',
+      storage: sharedMemory,
+    });
+
+    adapterA.saveMetrics({
+      unitsConsumed: 2,
+      chapterIndex: 0,
+      lastActiveTimestamp: 1000,
+      isChapterComplete: false,
+    });
+    adapterB.saveMetrics({
+      unitsConsumed: 7,
+      chapterIndex: 3,
+      lastActiveTimestamp: 2000,
+      isChapterComplete: false,
+    });
+
+    const { result, rerender } = renderHook(
+      ({ storage }) =>
+        useCadenceSession({
+          unitLimit: 10,
+          storage,
+          now: () => 5000,
+        }),
+      { initialProps: { storage: adapterA } }
+    );
+
+    expect(result.current.currentCount).toBe(2);
+    expect(result.current.chapterIndex).toBe(0);
+
+    rerender({ storage: adapterB });
+
+    expect(result.current.currentCount).toBe(7);
+    expect(result.current.chapterIndex).toBe(3);
+    expect(adapterB.loadMetrics()).toMatchObject({
+      unitsConsumed: 7,
+      chapterIndex: 3,
+    });
+  });
 });

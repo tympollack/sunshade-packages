@@ -43,8 +43,11 @@ describe('@digitalcanopy/assets CDN Resolvers', () => {
   });
 
   it('handles leading and trailing slashes cleanly', () => {
-    const url = getKenneyAssetUrl('/ui-pack/', '/button-default.svg');
+    const url = getKenneyAssetUrl('/ui-pack/', '/button-default.svg/');
     expect(url).toBe('https://cdn.sunshade.icu/assets/kenney/ui-pack/button-default.svg');
+
+    const bareTrailingSlash = getKenneyAssetUrl('cards/', 'spades_10/');
+    expect(bareTrailingSlash).toBe('https://cdn.sunshade.icu/assets/kenney/cards/spades_10.png');
   });
 
   it('resolves nested asset paths correctly', () => {
@@ -79,5 +82,12 @@ describe('@digitalcanopy/assets CDN Resolvers', () => {
     const dottedFace = getKenneyCharacterUrl('face', 'face-0', '.png');
     expect(dottedFace).toBe('https://cdn.sunshade.icu/assets/kenney/modular-characters/face/face-0.png');
     expect(dottedFace).not.toContain('..png');
+
+    expect(getKenneyCardUrl('card_spades_A.PNG')).toBe(
+      'https://cdn.sunshade.icu/assets/kenney/cards/card_spades_A.PNG'
+    );
+    expect(getKenneyCharacterUrl('hair', 'hair_blonde.PNG')).toBe(
+      'https://cdn.sunshade.icu/assets/kenney/modular-characters/hair/hair_blonde.PNG'
+    );
   });
 });

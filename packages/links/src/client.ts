@@ -30,15 +30,26 @@ export class LinksClient {
     this.apiKey = config.apiKey;
 
     // Security check: Never send credentials over plaintext HTTP in production
-    if (
-      this.apiKey &&
-      rawBase.startsWith('http://') &&
-      !rawBase.includes('localhost') &&
-      !rawBase.includes('127.0.0.1')
-    ) {
-      throw new Error(
-        'Insecure transport: apiKey cannot be transmitted over plaintext HTTP (use HTTPS or localhost).'
-      );
+    if (this.apiKey) {
+      let parsedBase: URL | null = null;
+      try {
+        parsedBase = new URL(rawBase);
+      } catch {
+        parsedBase = null;
+      }
+      if (parsedBase && parsedBase.protocol === 'http:') {
+        const host = parsedBase.hostname.toLowerCase();
+        const isLoopback =
+          host === 'localhost' ||
+          host === '127.0.0.1' ||
+          host === '::1' ||
+          host === '[::1]';
+        if (!isLoopback) {
+          throw new Error(
+            'Insecure transport: apiKey cannot be transmitted over plaintext HTTP (use HTTPS or localhost).'
+          );
+        }
+      }
     }
 
     this.baseUrl = rawBase;
@@ -290,18 +301,24 @@ export class LinksClient {
   }
 }
 
-// Singleton and default client management
-let defaultClientInstance: LinksClient | null = null;
+// Singleton and default client management shared across CJS/ESM entry points
+const DEFAULT_CLIENT_SYMBOL = Symbol.for('@digitalcanopy/links/defaultClient');
+
+type GlobalWithLinksClient = typeof globalThis & {
+  [DEFAULT_CLIENT_SYMBOL]?: LinksClient | null;
+};
 
 export function getDefaultClient(): LinksClient {
-  if (!defaultClientInstance) {
-    defaultClientInstance = new LinksClient();
+  const g = globalThis as GlobalWithLinksClient;
+  if (!g[DEFAULT_CLIENT_SYMBOL]) {
+    g[DEFAULT_CLIENT_SYMBOL] = new LinksClient();
   }
-  return defaultClientInstance;
+  return g[DEFAULT_CLIENT_SYMBOL];
 }
 
 export function setDefaultClient(client: LinksClient): void {
-  defaultClientInstance = client;
+  const g = globalThis as GlobalWithLinksClient;
+  g[DEFAULT_CLIENT_SYMBOL] = client;
 }
 
 /**
