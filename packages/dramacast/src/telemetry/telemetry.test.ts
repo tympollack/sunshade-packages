@@ -285,5 +285,48 @@ describe('@digitalcanopy/dramacast Vector Telemetry Codec & Scrub Synchronizer',
       },
     });
     expect(() => cutSync.jumpToRoll(2)).toThrow(/not included in the edited reel timeline/i);
+
+    // Roll matching a nonfinal clip's sourceEndMs skips the half-open boundary if the next clip claims that playhead
+    const overlapPlan = {
+      ...plan,
+      keyframes: [
+        { ...plan.keyframes[0], keyframeId: 'kf-a', sourceRollIndex: 98, startMs: 0, endMs: 500, durationMs: 500 },
+        { ...plan.keyframes[1], keyframeId: 'kf-b', sourceRollIndex: 99, startMs: 500, endMs: 1500, durationMs: 1000 },
+      ],
+      targetDurationMs: 1500,
+    };
+    const overlapSync = new ReactionTimelineSynchronizer({
+      frames: [
+        {
+          seq: 0,
+          tMs: 0,
+          rollIndex: 0,
+          winProbability: 0.5,
+          dramaIndex: 20,
+          score: 100,
+          tierIndex: 0,
+          flags: 0,
+        },
+        {
+          seq: 1,
+          tMs: 1000,
+          rollIndex: 1,
+          winProbability: 0.75,
+          dramaIndex: 65,
+          score: 900,
+          tierIndex: 1,
+          flags: 0,
+        },
+      ],
+      timelinePlan: overlapPlan,
+      sourceClipWindows: {
+        'kf-a': { sourceStartMs: 0, sourceEndMs: 1000 },
+        'kf-b': { sourceStartMs: 800, sourceEndMs: 1200 },
+      },
+    });
+    const overlapState = overlapSync.jumpToRoll(1);
+    expect(overlapState.playheadMs).toBeCloseTo(1000);
+    expect(overlapState.sourceTimeMs).toBeCloseTo(1000);
+    expect(overlapState.activeKeyframe?.keyframeId).toBe('kf-b');
   });
 });

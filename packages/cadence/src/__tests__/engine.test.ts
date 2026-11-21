@@ -379,4 +379,92 @@ describe('useCadenceSession Consumer Hook (TASK-CADENCE-ENGINE-HOOK)', () => {
       chapterIndex: 3,
     });
   });
+
+  it('preserves active session state when persist toggles false mid-session', () => {
+    const sharedMemory = createMemoryStorage();
+    const adapter = createLocalStorageAdapter({
+      keyPrefix: 'app:pause-persist',
+      storage: sharedMemory,
+    });
+    let clock = 1000;
+
+    const { result, rerender } = renderHook(
+      ({ persist }) =>
+        useCadenceSession({
+          unitLimit: 5,
+          storage: adapter,
+          persist,
+          now: () => clock,
+        }),
+      { initialProps: { persist: true } }
+    );
+
+    act(() => {
+      result.current.registerAction();
+      result.current.registerAction();
+      result.current.registerAction();
+    });
+    expect(result.current.currentCount).toBe(3);
+    expect(adapter.loadMetrics()?.unitsConsumed).toBe(3);
+
+    rerender({ persist: false });
+    expect(result.current.currentCount).toBe(3);
+
+    act(() => {
+      clock = 2000;
+      result.current.registerAction();
+    });
+    expect(result.current.currentCount).toBe(4);
+    // Storage was not overwritten while persist=false
+    expect(adapter.loadMetrics()?.unitsConsumed).toBe(3);
+
+    rerender({ persist: true });
+    expect(result.current.currentCount).toBe(4);
+  });
+
+  it('preserves per-prefix fallback progress across storageKeyPrefix switches when localStorage is blocked', () => {
+    const originalStorage = Object.getOwnPropertyDescriptor(window, 'localStorage');
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      get() {
+        throw new Error('localStorage disabled');
+      },
+    });
+
+    try {
+      const { result, rerender } = renderHook(
+        ({ prefix }) =>
+          useCadenceSession({
+            unitLimit: 5,
+            storageKeyPrefix: prefix,
+            now: () => 5000,
+          }),
+        { initialProps: { prefix: 'ns:alpha' } }
+      );
+
+      act(() => {
+        result.current.registerAction();
+        result.current.registerAction();
+      });
+      expect(result.current.currentCount).toBe(2);
+
+      rerender({ prefix: 'ns:beta' });
+      expect(result.current.currentCount).toBe(0);
+
+      act(() => {
+        result.current.registerAction();
+        result.current.registerAction();
+        result.current.registerAction();
+        result.current.registerAction();
+      });
+      expect(result.current.currentCount).toBe(4);
+
+      rerender({ prefix: 'ns:alpha' });
+      expect(result.current.currentCount).toBe(2);
+    } finally {
+      if (originalStorage) {
+        Object.defineProperty(window, 'localStorage', originalStorage);
+      }
+    }
+  });
 });

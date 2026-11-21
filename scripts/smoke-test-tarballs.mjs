@@ -72,6 +72,9 @@ try {
   const linksRoot = requireFromTmp('@digitalcanopy/links');
   const linksReact = requireFromTmp('@digitalcanopy/links/react');
 
+  const defaultClientKey = Symbol.for('@digitalcanopy/links/defaultClient');
+  delete globalThis[defaultClientKey];
+
   // Calling useTrackedLink in ./react initializes the default client if unset
   renderToStaticMarkup(
     React.createElement(() => {
@@ -79,18 +82,19 @@ try {
       return null;
     })
   );
-  const clientCreatedByReactEntry = linksRoot.getDefaultClient();
-  assert.equal(typeof clientCreatedByReactEntry?.shortenUrl, 'function');
+  const reactCreatedClient = globalThis[defaultClientKey];
+  assert.equal(typeof reactCreatedClient?.shortenUrl, 'function');
   assert.strictEqual(
-    clientCreatedByReactEntry,
-    globalThis[Symbol.for('@digitalcanopy/links/defaultClient')]
+    linksRoot.getDefaultClient(),
+    reactCreatedClient,
+    'CJS @digitalcanopy/links root must return the client initialized by ./react'
   );
 
   const customClient = new linksRoot.LinksClient({ baseUrl: 'https://custom.links.sunshade.icu' });
   linksRoot.setDefaultClient(customClient);
   assert.strictEqual(linksRoot.getDefaultClient(), customClient);
   assert.strictEqual(
-    globalThis[Symbol.for('@digitalcanopy/links/defaultClient')],
+    globalThis[defaultClientKey],
     customClient,
     'CJS @digitalcanopy/links and ./react must share the same default client slot'
   );
@@ -135,6 +139,8 @@ try {
   // 3. Verify ESM imports for both packages in plain Node
   const esmScript = `
     import assert from 'node:assert/strict';
+    import React from 'react';
+    import { renderToStaticMarkup } from 'react-dom/server';
     import * as linksRoot from '@digitalcanopy/links';
     import * as linksReact from '@digitalcanopy/links/react';
     import * as cadenceRoot from '@digitalcanopy/cadence';
@@ -142,9 +148,27 @@ try {
     import * as cadenceWidgets from '@digitalcanopy/cadence/widgets';
     import * as cadenceAdapters from '@digitalcanopy/cadence/adapters';
 
+    const defaultClientKey = Symbol.for('@digitalcanopy/links/defaultClient');
+    delete globalThis[defaultClientKey];
+
+    renderToStaticMarkup(
+      React.createElement(() => {
+        linksReact.useTrackedLink('https://sunshade.icu', { enabled: false });
+        return null;
+      })
+    );
+    const reactCreatedClient = globalThis[defaultClientKey];
+    assert.equal(typeof reactCreatedClient?.shortenUrl, 'function');
+    assert.strictEqual(
+      linksRoot.getDefaultClient(),
+      reactCreatedClient,
+      'ESM @digitalcanopy/links root must return the client initialized by ./react'
+    );
+
     const custom = new linksRoot.LinksClient({ baseUrl: 'https://esm.links.sunshade.icu' });
     linksRoot.setDefaultClient(custom);
     assert.strictEqual(linksRoot.getDefaultClient(), custom);
+    assert.strictEqual(globalThis[defaultClientKey], custom);
     assert.equal(typeof linksReact.useTrackedLink, 'function');
     assert.equal(typeof linksReact.SafeAnchor, 'function');
 

@@ -99,15 +99,25 @@ export function useCadenceSession(
   const persistEnabled = options?.persist !== false;
   const getNow = useRef(options?.now ?? (() => Date.now()));
   getNow.current = options?.now ?? (() => Date.now());
+  const defaultAdaptersRef = useRef<Map<string, CadenceStorageAdapter>>(new Map());
 
   const storageAdapter = useMemo<CadenceStorageAdapter | null>(() => {
     if (!persistEnabled || options?.storage === null) {
       return null;
     }
-    return (
-      options?.storage ??
-      createLocalStorageAdapter({ keyPrefix: options?.storageKeyPrefix })
-    );
+    if (options?.storage) {
+      return options.storage;
+    }
+    const cacheKey =
+      options?.storageKeyPrefix === undefined
+        ? '__default__'
+        : `prefix:${options.storageKeyPrefix}`;
+    let cached = defaultAdaptersRef.current.get(cacheKey);
+    if (!cached) {
+      cached = createLocalStorageAdapter({ keyPrefix: options?.storageKeyPrefix });
+      defaultAdaptersRef.current.set(cacheKey, cached);
+    }
+    return cached;
   }, [persistEnabled, options?.storage, options?.storageKeyPrefix]);
 
   const explicitConfig = extractConfigFromOptions(options);
@@ -136,13 +146,14 @@ export function useCadenceSession(
 
   const [, setTick] = useState(0);
   const hydratedAdapterRef = useRef<CadenceStorageAdapter | null>(storageAdapter);
-  const adapterChangedThisRender = hydratedAdapterRef.current !== storageAdapter;
+  const adapterChangedThisRender =
+    storageAdapter !== null && hydratedAdapterRef.current !== storageAdapter;
   const prevCompleteRef = useRef(state.isChapterComplete);
 
   // Re-hydrate from the new storageAdapter when switching apps/namespaces without unmounting,
   // before any persistence effects run so previous app state never overwrites the new namespace.
   useEffect(() => {
-    if (!adapterChangedThisRender) return;
+    if (!adapterChangedThisRender || !storageAdapter) return;
     hydratedAdapterRef.current = storageAdapter;
     const now = getNow.current();
     const storedConfig = storageAdapter?.loadConfig() ?? {};

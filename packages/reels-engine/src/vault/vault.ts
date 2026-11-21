@@ -47,18 +47,19 @@ export class StubVault {
 
   constructor(adapter: IStubStorageAdapter, options?: StubVaultOptions) {
     this.adapter = adapter;
-    const explicitSecret = options?.vaultSecret?.trim();
+    const rawSecret = options?.vaultSecret;
+    const hasNonEmptySecret = Boolean(rawSecret && rawSecret.trim().length > 0);
     const isDurableAdapter =
       adapter instanceof IndexedDbStubAdapter ||
       adapter instanceof ExpoSqliteStubAdapter;
 
-    if (isDurableAdapter && !explicitSecret) {
+    if (isDurableAdapter && !hasNonEmptySecret) {
       throw new Error(
         `StubVault requires an explicit non-empty vaultSecret when using durable adapter "${adapter.constructor.name}".`
       );
     }
 
-    this.vaultSecret = explicitSecret || getDefaultEphemeralVaultSecret();
+    this.vaultSecret = hasNonEmptySecret ? rawSecret! : getDefaultEphemeralVaultSecret();
   }
 
   getStorageAdapter(): IStubStorageAdapter {

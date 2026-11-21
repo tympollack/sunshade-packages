@@ -360,7 +360,21 @@ export class ReactionTimelineSynchronizer {
         const span = window.sourceEndMs - window.sourceStartMs;
         const progress =
           span > 0 ? clamp((targetFrame.tMs - window.sourceStartMs) / span, 0, 1) : 0;
-        return this.seek(kf.startMs + progress * kf.durationMs);
+        const candidatePlayheadMs = kf.startMs + progress * kf.durationMs;
+        const activeKf = findActiveKeyframe(
+          this.timelinePlan.keyframes,
+          candidatePlayheadMs
+        );
+        if (
+          activeKf &&
+          (activeKf.keyframeId === kf.keyframeId ||
+            Math.abs(
+              this.mapReelToSourceTimeMs(candidatePlayheadMs, activeKf) -
+                targetFrame.tMs
+            ) <= 1e-3)
+        ) {
+          return this.seek(candidatePlayheadMs);
+        }
       }
     }
 

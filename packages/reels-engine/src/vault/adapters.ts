@@ -621,7 +621,7 @@ export class ExpoSqliteStubAdapter implements IStubStorageAdapter {
             `DELETE FROM ${this.tableName} WHERE stub_id = ? AND status != 'resolved';`,
             [row.stub_id]
           );
-          if ((res.changes ?? 0) > 0) {
+          if (res?.changes === undefined || res.changes > 0) {
             purged++;
           }
         }
