@@ -4,6 +4,10 @@
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "publishConfig": {
     "access": "public"
   },
@@ -39,6 +43,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:boundaries": "vitest run",
+    "test:tarball": "node scripts/smoke-test-tarball.mjs",
     "test:hot-swap": "node scripts/verify-hot-swap.mjs"
   },
   "devDependencies": {
