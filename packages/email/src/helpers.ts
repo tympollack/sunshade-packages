@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { EmailValidationError, validateEmailAddress } from './domain';
 import type {
   AddAudienceContactParams,
@@ -128,10 +129,41 @@ function headerContainsHttpsUri(headerValue: string): boolean {
   return false;
 }
 
+const MAX_IDEMPOTENCY_KEY_LENGTH = 256;
+
+/**
+ * Derives a deterministic Resend-safe idempotency key (<= 256 chars) per chunk.
+ */
+export function buildChunkIdempotencyKey(baseKey: string, chunkIndex: number): string {
+  const suffix = `/chunk-${chunkIndex}`;
+  const candidate = `${baseKey}${suffix}`;
+  if (candidate.length <= MAX_IDEMPOTENCY_KEY_LENGTH) {
+    return candidate;
+  }
+
+  const hash = createHash('sha256').update(baseKey).digest('hex').slice(0, 16);
+  const maxPrefixLen = Math.max(0, MAX_IDEMPOTENCY_KEY_LENGTH - suffix.length - hash.length - 1);
+  return `${baseKey.slice(0, maxPrefixLen)}-${hash}${suffix}`;
+}
+
+/**
+ * Formats an email address into an RFC 6068 mailto URI, encoding reserved
+ * address delimiters like `#`, `?`, `&`, and `%` in the local-part.
+ */
+export function formatMailtoUnsubscribeUri(rawEmail: string): string {
+  const addr = validateEmailAddress(rawEmail, 'unsubscribeMailto');
+  const atIdx = addr.lastIndexOf('@');
+  const localPart = addr.slice(0, atIdx);
+  const domain = addr.slice(atIdx + 1);
+  const encodedLocal = encodeURIComponent(localPart).replace(/%2B/gi, '+');
+  return `mailto:${encodedLocal}@${domain}`;
+}
+
 /**
  * Case-insensitively canonicalizes and builds RFC 8058 `List-Unsubscribe`
  * and `List-Unsubscribe-Post` headers.
- * Only emits `List-Unsubscribe-Post: List-Unsubscribe=One-Click` when an `https:` URI is present.
+ * Only emits `List-Unsubscribe-Post` when `unsubscribeUrl` is provided OR when
+ * custom headers explicitly include both an `https:` `List-Unsubscribe` target and `List-Unsubscribe-Post`.
  */
 export function buildRfc8058Headers(
   msg: BatchNotificationMessage
@@ -157,8 +189,7 @@ export function buildRfc8058Headers(
   let hasHttpsTarget = false;
 
   if (msg.unsubscribeMailto) {
-    const addr = validateEmailAddress(msg.unsubscribeMailto, 'unsubscribeMailto');
-    parts.push(`<mailto:${addr}>`);
+    parts.push(`<${formatMailtoUnsubscribeUri(msg.unsubscribeMailto)}>`);
   }
 
   if (msg.unsubscribeUrl) {
@@ -174,13 +205,9 @@ export function buildRfc8058Headers(
     }
   } else if (customUnsubscribe) {
     headers['List-Unsubscribe'] = customUnsubscribe;
-    if (customUnsubscribePost) {
+    if (customUnsubscribePost && headerContainsHttpsUri(customUnsubscribe)) {
       headers['List-Unsubscribe-Post'] = customUnsubscribePost;
-    } else if (headerContainsHttpsUri(customUnsubscribe)) {
-      headers['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
     }
-  } else if (customUnsubscribePost) {
-    headers['List-Unsubscribe-Post'] = customUnsubscribePost;
   }
 
   return Object.keys(headers).length > 0 ? headers : undefined;
@@ -191,6 +218,55 @@ export function extractStatusCode(err: unknown): number | undefined {
   const record = err as Record<string, unknown>;
   if (typeof record.statusCode === 'number') return record.statusCode;
   if (typeof record.status === 'number') return record.status;
+  return undefined;
+}
+
+export function throwWithResponseHeaders(
+  err: unknown,
+  headers?: Record<string, string> | null
+): never {
+  if (headers && err && typeof err === 'object') {
+    const wrapped = err instanceof Error ? err : { ...(err as Record<string, unknown>) };
+    Object.defineProperty(wrapped, 'headers', {
+      value: headers,
+      enumerable: false,
+      configurable: true,
+    });
+    throw wrapped;
+  }
+  throw err;
+}
+
+export function extractRetryAfterMs(err: unknown): number | undefined {
+  if (!err || typeof err !== 'object') return undefined;
+  const headers = (err as { headers?: Record<string, string> | Headers | null }).headers;
+  if (!headers) return undefined;
+
+  let rawValue: string | null | undefined;
+  if (typeof (headers as Headers).get === 'function') {
+    rawValue = (headers as Headers).get('retry-after');
+  } else {
+    for (const [k, v] of Object.entries(headers as Record<string, unknown>)) {
+      if (k.toLowerCase() === 'retry-after' && typeof v === 'string') {
+        rawValue = v;
+        break;
+      }
+    }
+  }
+
+  if (!rawValue || !rawValue.trim()) return undefined;
+  const trimmed = rawValue.trim();
+
+  if (/^\d+(\.\d+)?$/.test(trimmed)) {
+    const seconds = Number(trimmed);
+    return Number.isFinite(seconds) && seconds >= 0 ? Math.ceil(seconds * 1000) : undefined;
+  }
+
+  const parsedMs = Date.parse(trimmed);
+  if (Number.isFinite(parsedMs)) {
+    return Math.max(0, parsedMs - Date.now());
+  }
+
   return undefined;
 }
 
@@ -232,6 +308,13 @@ export function isRateLimitError(err: unknown): boolean {
   );
 }
 
+export function encodeEmailPathParam(email: string): string {
+  return email.replace(/[%?#\/\\\s<>"]/g, (ch) => {
+    const hex = Buffer.from(ch, 'utf8').toString('hex').toUpperCase();
+    return hex.replace(/../g, (byte) => `%${byte}`);
+  });
+}
+
 export function isContactAlreadyExistsError(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
   const record = err as Record<string, unknown>;
@@ -239,13 +322,16 @@ export function isContactAlreadyExistsError(err: unknown): boolean {
   const name = typeof record.name === 'string' ? record.name.toLowerCase() : '';
   const message = typeof record.message === 'string' ? record.message.toLowerCase() : '';
 
-  if (statusCode === 409) return true;
+  if (name === 'resource_locked') return false;
   if (
     message.includes('already exists') ||
     message.includes('already in') ||
     message.includes('duplicate')
   ) {
     return true;
+  }
+  if (statusCode === 409) {
+    return !name || name === 'conflict' || name === 'already_exists';
   }
   return name === 'validation_error' && message.includes('contact') && message.includes('exist');
 }
@@ -280,10 +366,14 @@ export async function withRateLimitRetry<T>(
     try {
       return await operation();
     } catch (err) {
-      if (isRateLimitError(err) && attempt < maxRetries - 1) {
+      if (isRateLimitError(err) && attempt < maxRetries) {
         attempt++;
+        const retryAfterMs = extractRetryAfterMs(err);
+        const waitMs = retryAfterMs !== undefined ? Math.max(delayMs, retryAfterMs) : delayMs;
+        if (waitMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, waitMs));
+        }
         if (delayMs > 0) {
-          await new Promise((resolve) => setTimeout(resolve, delayMs));
           delayMs *= 2;
         }
         continue;
@@ -298,7 +388,9 @@ export function buildRenderOptions(
   text?: string
 ): { html: string; text?: string } | { text: string } {
   if (typeof html === 'string' && html.trim().length > 0) {
-    return typeof text === 'string' && text.trim().length > 0 ? { html, text } : { html };
+    return text === '' || (typeof text === 'string' && text.trim().length > 0)
+      ? { html, text }
+      : { html };
   }
   return { text: text as string };
 }
