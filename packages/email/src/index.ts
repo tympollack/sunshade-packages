@@ -7,6 +7,7 @@
 export { createEmailClient, RESEND_BATCH_MAX_SIZE } from './client';
 
 export {
+  BatchDispatchError,
   DEFAULT_ALLOWED_ALERT_SUBDOMAINS,
   EmailConfigError,
   EmailDispatchError,
@@ -32,6 +33,7 @@ export type {
   EmailTag,
   EmailTagsInput,
   ResendLike,
+  SendBatchNotificationOptions,
   SendBatchNotificationResult,
   SendTransactionalParams,
   SendTransactionalResult,

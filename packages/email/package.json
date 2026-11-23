@@ -27,7 +27,8 @@
     "test:boundaries": "vitest run"
   },
   "dependencies": {
-    "resend": "^6.39.0"
+    "resend": "^6.39.0",
+    "tldts": "^7.5.5"
   },
   "devDependencies": {
     "tsup": "^8.5.1",

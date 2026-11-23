@@ -1,25 +1,11 @@
+import { parse as parseHostname } from 'tldts';
+import type { BatchNotificationChunkResult } from './types';
+
 /**
- * Domain parsing, apex detection, and subdomain reputation firewall helpers.
+ * Domain parsing, Public Suffix List apex detection, and subdomain reputation firewall helpers.
  */
 
 export const DEFAULT_ALLOWED_ALERT_SUBDOMAINS = ['mail.', 'drops.'] as const;
-
-/**
- * Common two-label public suffixes so domains like `example.co.uk` are still
- * recognized as root apex domains rather than subdomains.
- */
-const MULTI_LABEL_PUBLIC_SUFFIXES = new Set([
-  'co.uk',
-  'org.uk',
-  'ac.uk',
-  'gov.uk',
-  'com.au',
-  'net.au',
-  'org.au',
-  'co.nz',
-  'co.jp',
-  'com.br',
-]);
 
 export interface ParsedSender {
   raw: string;
@@ -67,11 +53,35 @@ export class EmailDispatchError extends Error {
   }
 }
 
+export class BatchDispatchError extends EmailDispatchError {
+  readonly completedBatches: BatchNotificationChunkResult[];
+  readonly completedIds: string[];
+  readonly failedChunkIndex: number;
+
+  constructor(
+    message: string,
+    options: {
+      statusCode?: number;
+      cause?: unknown;
+      completedBatches: BatchNotificationChunkResult[];
+      completedIds: string[];
+      failedChunkIndex: number;
+    }
+  ) {
+    super(message, { statusCode: options.statusCode, cause: options.cause });
+    this.name = 'BatchDispatchError';
+    this.completedBatches = options.completedBatches;
+    this.completedIds = options.completedIds;
+    this.failedChunkIndex = options.failedChunkIndex;
+  }
+}
+
 const ANGLE_ADDR_REGEX = /^(?:"?([^"]*?)"?\s*)?<([^<>\s]+@[^<>\s]+)>$/;
 const SIMPLE_EMAIL_REGEX = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
 
 /**
  * Parses either `"Display Name <user@domain.tld>"` or `"user@domain.tld"`.
+ * Preserves case of the local-part per RFC 5321 while normalizing the domain to lowercase.
  */
 export function parseSenderAddress(sender: string): ParsedSender {
   if (typeof sender !== 'string' || !sender.trim()) {
@@ -82,15 +92,15 @@ export function parseSenderAddress(sender: string): ParsedSender {
   const angleMatch = trimmed.match(ANGLE_ADDR_REGEX);
 
   const displayName = angleMatch?.[1]?.trim() || undefined;
-  const email = (angleMatch ? angleMatch[2] : trimmed).trim().toLowerCase();
+  const rawEmail = (angleMatch ? angleMatch[2] : trimmed).trim();
 
-  if (!SIMPLE_EMAIL_REGEX.test(email)) {
+  if (!SIMPLE_EMAIL_REGEX.test(rawEmail)) {
     throw new EmailValidationError(`Invalid sender email address: "${sender}".`);
   }
 
-  const atIndex = email.lastIndexOf('@');
-  const localPart = email.slice(0, atIndex);
-  const domain = email.slice(atIndex + 1);
+  const atIndex = rawEmail.lastIndexOf('@');
+  const localPart = rawEmail.slice(0, atIndex);
+  const domain = rawEmail.slice(atIndex + 1).toLowerCase();
 
   if (!localPart || !domain || domain.startsWith('.') || domain.endsWith('.') || domain.includes('..')) {
     throw new EmailValidationError(`Invalid sender email domain in "${sender}".`);
@@ -99,14 +109,14 @@ export function parseSenderAddress(sender: string): ParsedSender {
   return {
     raw: trimmed,
     displayName,
-    email,
+    email: `${localPart}@${domain}`,
     localPart,
     domain,
   };
 }
 
 /**
- * Validates a recipient or standalone email string.
+ * Validates a recipient or standalone email string (normalizing domain case while preserving local-part case).
  */
 export function validateEmailAddress(email: string, fieldName = 'email'): string {
   if (typeof email !== 'string' || !email.trim()) {
@@ -117,23 +127,20 @@ export function validateEmailAddress(email: string, fieldName = 'email'): string
 }
 
 /**
- * Returns true if `domain` is a root apex domain (e.g., `sunshade.icu`, `madeintheshade.wtf`, `example.co.uk`)
- * with no subdomain label.
+ * Returns true if `domain` is a root apex (registrable) domain with no subdomain
+ * according to the Public Suffix List (e.g. `sunshade.icu`, `example.co.uk`, `shop.co.in`),
+ * or if the hostname cannot be resolved to a valid registrable domain.
  */
 export function isRootApexDomain(domain: string): boolean {
   const normalized = domain.trim().toLowerCase().replace(/\.$/, '');
-  const labels = normalized.split('.').filter(Boolean);
+  if (!normalized) return true;
 
-  if (labels.length <= 2) {
+  const parsed = parseHostname(normalized, { allowPrivateDomains: false });
+  if (!parsed.domain || parsed.isIp) {
     return true;
   }
 
-  const lastTwo = `${labels[labels.length - 2]}.${labels[labels.length - 1]}`;
-  if (MULTI_LABEL_PUBLIC_SUFFIXES.has(lastTwo) && labels.length === 3) {
-    return true;
-  }
-
-  return false;
+  return !parsed.subdomain;
 }
 
 /**
@@ -160,16 +167,12 @@ export interface ResolveAlertSenderOptions {
 /**
  * Enforces the Subdomain Reputation Firewall for marketing / drop alert blasts:
  * 1. Prefers `messageFrom`, then `alertsFrom`, then `defaultFrom`.
- * 2. Never permits a root apex domain (e.g. `sunshade.icu` or `madeintheshade.wtf`) for alert blasts.
- * 3. When a dedicated `mail.` / `drops.` subdomain is configured via `alertsFrom` or `defaultFrom`,
- *    rejects any override that sends from a root apex domain or outside the allowed alert subdomains.
+ * 2. Never permits a root apex domain (e.g. `sunshade.icu`, `shop.co.in`) for alert blasts.
+ * 3. When an explicit `allowedAlertSubdomains` list is configured, enforces it unconditionally.
+ * 4. Otherwise, when a dedicated `mail.` / `drops.` subdomain is configured via `alertsFrom` or `defaultFrom`,
+ *    rejects any override outside those dedicated alert subdomains.
  */
 export function resolveAlertSender(options: ResolveAlertSenderOptions): string {
-  const allowedPrefixes =
-    options.allowedAlertSubdomains && options.allowedAlertSubdomains.length > 0
-      ? options.allowedAlertSubdomains
-      : DEFAULT_ALLOWED_ALERT_SUBDOMAINS;
-
   const candidate = (options.messageFrom ?? options.alertsFrom ?? options.defaultFrom).trim();
   const parsedCandidate = parseSenderAddress(candidate);
 
@@ -181,13 +184,29 @@ export function resolveAlertSender(options: ResolveAlertSenderOptions): string {
     );
   }
 
-  const dedicatedConfigured =
-    (options.alertsFrom ? hasSubdomainPrefix(parseSenderAddress(options.alertsFrom).domain, allowedPrefixes) : false) ||
-    hasSubdomainPrefix(parseSenderAddress(options.defaultFrom).domain, allowedPrefixes);
+  if (options.allowedAlertSubdomains !== undefined) {
+    if (options.allowedAlertSubdomains.length === 0) {
+      throw new EmailConfigError('allowedAlertSubdomains cannot be an empty array.');
+    }
+    if (!hasSubdomainPrefix(parsedCandidate.domain, options.allowedAlertSubdomains)) {
+      throw new SubdomainFirewallError(
+        `Subdomain firewall blocked alert blast from "${parsedCandidate.domain}". Permitted alert subdomain prefixes: ${options.allowedAlertSubdomains.join(', ')}.`,
+        candidate,
+        parsedCandidate.domain
+      );
+    }
+    return candidate;
+  }
 
-  if (dedicatedConfigured && !hasSubdomainPrefix(parsedCandidate.domain, allowedPrefixes)) {
+  const dedicatedConfigured =
+    (options.alertsFrom
+      ? hasSubdomainPrefix(parseSenderAddress(options.alertsFrom).domain, DEFAULT_ALLOWED_ALERT_SUBDOMAINS)
+      : false) ||
+    hasSubdomainPrefix(parseSenderAddress(options.defaultFrom).domain, DEFAULT_ALLOWED_ALERT_SUBDOMAINS);
+
+  if (dedicatedConfigured && !hasSubdomainPrefix(parsedCandidate.domain, DEFAULT_ALLOWED_ALERT_SUBDOMAINS)) {
     throw new SubdomainFirewallError(
-      `Subdomain firewall blocked alert blast from "${parsedCandidate.domain}" because a dedicated alert subdomain (${allowedPrefixes.join(', ')}) is configured.`,
+      `Subdomain firewall blocked alert blast from "${parsedCandidate.domain}" because a dedicated alert subdomain (${DEFAULT_ALLOWED_ALERT_SUBDOMAINS.join(', ')}) is configured.`,
       candidate,
       parsedCandidate.domain
     );

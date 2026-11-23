@@ -1,6 +1,6 @@
 import { Resend, type CreateBatchEmailOptions, type CreateEmailOptions } from 'resend';
 import {
-  DEFAULT_ALLOWED_ALERT_SUBDOMAINS,
+  BatchDispatchError,
   EmailConfigError,
   EmailDispatchError,
   EmailValidationError,
@@ -29,6 +29,7 @@ import type {
   EmailClient,
   EmailClientConfig,
   ResendLike,
+  SendBatchNotificationOptions,
   SendBatchNotificationResult,
   SendTransactionalParams,
   SendTransactionalResult,
@@ -68,6 +69,9 @@ export function createEmailClient(config: EmailClientConfig): EmailClient {
   if (config.alertsFrom) {
     parseSenderAddress(config.alertsFrom);
   }
+  if (config.allowedAlertSubdomains !== undefined && config.allowedAlertSubdomains.length === 0) {
+    throw new EmailConfigError('allowedAlertSubdomains cannot be an empty array.');
+  }
 
   const dryRun = Boolean(config.dryRun);
   const apiKey = typeof config.apiKey === 'string' ? config.apiKey.trim() : '';
@@ -78,8 +82,7 @@ export function createEmailClient(config: EmailClientConfig): EmailClient {
     );
   }
 
-  const allowedAlertSubdomains =
-    config.allowedAlertSubdomains ?? DEFAULT_ALLOWED_ALERT_SUBDOMAINS;
+  const allowedAlertSubdomains = config.allowedAlertSubdomains;
   const maxRetries = Math.max(1, config.maxRetries ?? DEFAULT_MAX_RETRIES);
   const initialRetryDelayMs = Math.max(0, config.initialRetryDelayMs ?? DEFAULT_INITIAL_RETRY_DELAY_MS);
   const logger = config.logger ?? createDefaultLogger(config.appId);
@@ -157,7 +160,8 @@ export function createEmailClient(config: EmailClientConfig): EmailClient {
     },
 
     async sendBatchNotification(
-      messages: readonly BatchNotificationMessage[]
+      messages: readonly BatchNotificationMessage[],
+      options?: SendBatchNotificationOptions
     ): Promise<SendBatchNotificationResult> {
       if (!Array.isArray(messages)) {
         throw new EmailValidationError('sendBatchNotification requires an array of messages.');
@@ -236,12 +240,18 @@ export function createEmailClient(config: EmailClientConfig): EmailClient {
         };
       }
 
+      const baseIdempotencyKey = options?.idempotencyKey?.trim();
+
       for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
         const chunk = chunks[chunkIndex];
+        const requestOptions = baseIdempotencyKey
+          ? { idempotencyKey: `${baseIdempotencyKey}/chunk-${chunkIndex}` }
+          : undefined;
+
         try {
           const response = await withRateLimitRetry(
             async () => {
-              const res = await resend.batch.send(chunk);
+              const res = await resend.batch.send(chunk, requestOptions);
               if (res.error) throw res.error;
               return res;
             },
@@ -258,11 +268,15 @@ export function createEmailClient(config: EmailClientConfig): EmailClient {
             channel: 'alerts',
             chunkIndex,
             chunkSize: chunk.length,
+            completedChunks: batchResults.length,
             error: message,
           });
-          throw new EmailDispatchError(message, {
+          throw new BatchDispatchError(message, {
             statusCode: extractStatusCode(err),
             cause: err,
+            completedBatches: [...batchResults],
+            completedIds: [...allIds],
+            failedChunkIndex: chunkIndex,
           });
         }
       }
@@ -286,8 +300,14 @@ export function createEmailClient(config: EmailClientConfig): EmailClient {
 
     async addAudienceContact(params: AddAudienceContactParams): Promise<AddAudienceContactResult> {
       const audienceId = typeof params.audienceId === 'string' ? params.audienceId.trim() : '';
-      if (!audienceId) {
-        throw new EmailValidationError('audienceId must be a non-empty string.');
+      const segmentIds = Array.isArray(params.segmentIds)
+        ? params.segmentIds.map((s) => s.trim()).filter(Boolean)
+        : [];
+
+      if (!audienceId && segmentIds.length === 0) {
+        throw new EmailValidationError(
+          'addAudienceContact requires either audienceId or at least one segmentId.'
+        );
       }
 
       const email = validateEmailAddress(params.email, 'email');
@@ -295,44 +315,109 @@ export function createEmailClient(config: EmailClientConfig): EmailClient {
 
       if (!resend) {
         const dryId = `dry_contact_${Date.now().toString(36)}`;
-        logger.info('Dry-run audience contact staged', { id: dryId, audienceId });
-        return { id: dryId, audienceId, email, created: true, alreadyExists: false, dryRun: true };
+        logger.info('Dry-run audience contact staged', {
+          id: dryId,
+          ...(audienceId ? { audienceId } : {}),
+          ...(segmentIds.length > 0 ? { segmentIds } : {}),
+        });
+        return {
+          id: dryId,
+          ...(audienceId ? { audienceId } : {}),
+          ...(segmentIds.length > 0 ? { segmentIds } : {}),
+          email,
+          created: true,
+          alreadyExists: false,
+          dryRun: true,
+        };
       }
 
-      try {
-        const res = await withRateLimitRetry(
-          () =>
-            resend.contacts.create({
+      const payload =
+        segmentIds.length > 0
+          ? {
+              email,
+              segments: segmentIds.map((id) => ({ id })),
+              ...(params.firstName !== undefined ? { firstName: params.firstName } : {}),
+              ...(params.lastName !== undefined ? { lastName: params.lastName } : {}),
+              ...(params.unsubscribed !== undefined ? { unsubscribed: params.unsubscribed } : {}),
+              ...(properties ? { properties } : {}),
+            }
+          : {
               audienceId,
               email,
               ...(params.firstName !== undefined ? { firstName: params.firstName } : {}),
               ...(params.lastName !== undefined ? { lastName: params.lastName } : {}),
               ...(params.unsubscribed !== undefined ? { unsubscribed: params.unsubscribed } : {}),
               ...(properties ? { properties } : {}),
-            }),
+            };
+
+      try {
+        const res = await withRateLimitRetry(
+          async () => {
+            const response = await resend.contacts.create(payload);
+            if (response.error) {
+              if (isContactAlreadyExistsError(response.error)) {
+                return response;
+              }
+              throw response.error;
+            }
+            return response;
+          },
           maxRetries,
           initialRetryDelayMs
         );
 
-        if (res.error) {
-          if (isContactAlreadyExistsError(res.error)) {
-            logger.info('Audience contact already exists (idempotent no-op)', { audienceId });
-            return { audienceId, email, created: false, alreadyExists: true, dryRun: false };
-          }
-          throw res.error;
+        if (res.error && isContactAlreadyExistsError(res.error)) {
+          logger.info('Audience contact already exists (idempotent no-op)', {
+            ...(audienceId ? { audienceId } : {}),
+            ...(segmentIds.length > 0 ? { segmentIds } : {}),
+          });
+          return {
+            ...(audienceId ? { audienceId } : {}),
+            ...(segmentIds.length > 0 ? { segmentIds } : {}),
+            email,
+            created: false,
+            alreadyExists: true,
+            dryRun: false,
+          };
         }
 
         const id = res.data?.id;
-        logger.info('Audience contact created', { id, audienceId });
-        return { id, audienceId, email, created: true, alreadyExists: false, dryRun: false };
+        logger.info('Audience contact created', {
+          id,
+          ...(audienceId ? { audienceId } : {}),
+          ...(segmentIds.length > 0 ? { segmentIds } : {}),
+        });
+        return {
+          id,
+          ...(audienceId ? { audienceId } : {}),
+          ...(segmentIds.length > 0 ? { segmentIds } : {}),
+          email,
+          created: true,
+          alreadyExists: false,
+          dryRun: false,
+        };
       } catch (err) {
         if (isContactAlreadyExistsError(err)) {
-          logger.info('Audience contact already exists (idempotent no-op)', { audienceId });
-          return { audienceId, email, created: false, alreadyExists: true, dryRun: false };
+          logger.info('Audience contact already exists (idempotent no-op)', {
+            ...(audienceId ? { audienceId } : {}),
+            ...(segmentIds.length > 0 ? { segmentIds } : {}),
+          });
+          return {
+            ...(audienceId ? { audienceId } : {}),
+            ...(segmentIds.length > 0 ? { segmentIds } : {}),
+            email,
+            created: false,
+            alreadyExists: true,
+            dryRun: false,
+          };
         }
 
         const message = extractErrorMessage(err, 'Failed to create Resend audience contact.');
-        logger.error('Audience contact creation failed', { audienceId, error: message });
+        logger.error('Audience contact creation failed', {
+          ...(audienceId ? { audienceId } : {}),
+          ...(segmentIds.length > 0 ? { segmentIds } : {}),
+          error: message,
+        });
         throw new EmailDispatchError(message, {
           statusCode: extractStatusCode(err),
           cause: err,

@@ -39,10 +39,6 @@ export function createDefaultLogger(appId: SunshadeAppId): EmailLogger {
   };
 }
 
-/**
- * Sanitizes Resend tag names/values to `[a-zA-Z0-9_-]` (max 256 chars) and
- * enforces mandatory `app_id` and `channel` tags.
- */
 function sanitizeTagToken(raw: string): string {
   const cleaned = raw.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 256);
   return cleaned || 'unknown';
@@ -102,29 +98,63 @@ export function assertMessageContent(subject: string, html?: string, text?: stri
   }
 }
 
-export function validateHttpUrl(rawUrl: string, fieldName: string): string {
+export function validateHttpsUrl(rawUrl: string, fieldName: string): string {
   let parsed: URL;
   try {
     parsed = new URL(rawUrl);
   } catch {
     throw new EmailValidationError(`Invalid ${fieldName}: "${rawUrl}".`);
   }
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+  if (parsed.protocol !== 'https:') {
     throw new EmailValidationError(
-      `Unsupported protocol for ${fieldName}: "${parsed.protocol}". Expected http: or https:.`
+      `RFC 8058 requires HTTPS for ${fieldName}: received "${parsed.protocol}".`
     );
   }
   return parsed.toString();
 }
 
+function headerContainsHttpsUri(headerValue: string): boolean {
+  const matches = headerValue.matchAll(/<([^>]+)>/g);
+  for (const match of matches) {
+    try {
+      const parsed = new URL(match[1].trim());
+      if (parsed.protocol === 'https:') {
+        return true;
+      }
+    } catch {
+      // Ignore non-URL tokens
+    }
+  }
+  return false;
+}
+
 /**
- * Builds RFC 8058 `List-Unsubscribe` and `List-Unsubscribe-Post` headers.
+ * Case-insensitively canonicalizes and builds RFC 8058 `List-Unsubscribe`
+ * and `List-Unsubscribe-Post` headers.
+ * Only emits `List-Unsubscribe-Post: List-Unsubscribe=One-Click` when an `https:` URI is present.
  */
 export function buildRfc8058Headers(
   msg: BatchNotificationMessage
 ): Record<string, string> | undefined {
-  const headers: Record<string, string> = msg.headers ? { ...msg.headers } : {};
+  const headers: Record<string, string> = {};
+  let customUnsubscribe: string | undefined;
+  let customUnsubscribePost: string | undefined;
+
+  if (msg.headers) {
+    for (const [key, value] of Object.entries(msg.headers)) {
+      const lower = key.toLowerCase();
+      if (lower === 'list-unsubscribe') {
+        customUnsubscribe = value;
+      } else if (lower === 'list-unsubscribe-post') {
+        customUnsubscribePost = value;
+      } else {
+        headers[key] = value;
+      }
+    }
+  }
+
   const parts: string[] = [];
+  let hasHttpsTarget = false;
 
   if (msg.unsubscribeMailto) {
     const addr = validateEmailAddress(msg.unsubscribeMailto, 'unsubscribeMailto');
@@ -132,15 +162,25 @@ export function buildRfc8058Headers(
   }
 
   if (msg.unsubscribeUrl) {
-    const safeUrl = validateHttpUrl(msg.unsubscribeUrl, 'unsubscribeUrl');
+    const safeUrl = validateHttpsUrl(msg.unsubscribeUrl, 'unsubscribeUrl');
     parts.push(`<${safeUrl}>`);
+    hasHttpsTarget = true;
   }
 
   if (parts.length > 0) {
     headers['List-Unsubscribe'] = parts.join(', ');
-    headers['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
-  } else if (headers['List-Unsubscribe'] && !headers['List-Unsubscribe-Post']) {
-    headers['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
+    if (hasHttpsTarget) {
+      headers['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
+    }
+  } else if (customUnsubscribe) {
+    headers['List-Unsubscribe'] = customUnsubscribe;
+    if (customUnsubscribePost) {
+      headers['List-Unsubscribe-Post'] = customUnsubscribePost;
+    } else if (headerContainsHttpsUri(customUnsubscribe)) {
+      headers['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
+    }
+  } else if (customUnsubscribePost) {
+    headers['List-Unsubscribe-Post'] = customUnsubscribePost;
   }
 
   return Object.keys(headers).length > 0 ? headers : undefined;
@@ -163,12 +203,26 @@ export function extractErrorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
+/**
+ * Identifies transient per-second throttling errors while excluding daily/monthly
+ * quota exhaustion errors that cannot recover within short retry backoff windows.
+ */
 export function isRateLimitError(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
   const record = err as Record<string, unknown>;
   const statusCode = extractStatusCode(err);
-  const name = typeof record.name === 'string' ? record.name : '';
+  const name = typeof record.name === 'string' ? record.name.toLowerCase() : '';
   const message = typeof record.message === 'string' ? record.message.toLowerCase() : '';
+
+  if (
+    name === 'daily_quota_exceeded' ||
+    name === 'monthly_quota_exceeded' ||
+    message.includes('daily quota') ||
+    message.includes('monthly quota') ||
+    message.includes('quota exceeded')
+  ) {
+    return false;
+  }
 
   return (
     statusCode === 429 ||

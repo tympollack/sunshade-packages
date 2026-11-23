@@ -176,14 +176,14 @@ describe('sendTransactional', () => {
       appId: 'hub',
       channel: 'transactional',
       from: 'SunShade Systems <auth@sunshade.icu>',
-      to: ['citizen@sunshade.icu'],
+      to: ['Citizen@sunshade.icu'],
       dryRun: false,
     });
 
     expect(mock.sendEmail).toHaveBeenCalledTimes(1);
     const payload = mock.sendEmail.mock.calls[0][0];
     expect(payload.from).toBe('SunShade Systems <auth@sunshade.icu>');
-    expect(payload.to).toEqual(['citizen@sunshade.icu']);
+    expect(payload.to).toEqual(['Citizen@sunshade.icu']);
     expect(payload.tags).toEqual([
       { name: 'app_id', value: 'hub' },
       { name: 'channel', value: 'transactional' },
@@ -397,7 +397,7 @@ describe('addAudienceContact', () => {
     expect(res).toEqual({
       id: 'ct_123',
       audienceId: 'aud_123',
-      email: 'collector@example.com',
+      email: 'Collector@example.com',
       created: true,
       alreadyExists: false,
       dryRun: false,
@@ -405,7 +405,7 @@ describe('addAudienceContact', () => {
 
     expect(mock.createContact).toHaveBeenCalledWith({
       audienceId: 'aud_123',
-      email: 'collector@example.com',
+      email: 'Collector@example.com',
       firstName: 'Ada',
       properties: {
         brand: 'get-bent',

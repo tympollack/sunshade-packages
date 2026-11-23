@@ -95,8 +95,10 @@ export interface EmailClientConfig {
    */
   alertsFrom?: string;
   /**
-   * Subdomain prefixes permitted for alert/marketing blasts.
-   * Defaults to `['mail.', 'drops.']`.
+   * Optional explicit subdomain prefixes permitted for alert/marketing blasts.
+   * When supplied, every alert sender must match one of these prefixes.
+   * When omitted, root apex domains are always blocked and `['mail.', 'drops.']`
+   * is enforced whenever a dedicated alert subdomain is configured.
    */
   allowedAlertSubdomains?: readonly string[];
   /**
@@ -164,13 +166,23 @@ export interface BatchNotificationMessage {
   headers?: Record<string, string>;
   tags?: EmailTagsInput;
   /**
-   * One-click HTTP(S) unsubscribe endpoint used to populate RFC 8058 headers.
+   * One-click HTTPS unsubscribe endpoint used to populate RFC 8058 headers.
    */
   unsubscribeUrl?: string;
   /**
-   * Optional mailto unsubscribe address included alongside `unsubscribeUrl`.
+   * Optional mailto unsubscribe address included in `List-Unsubscribe`.
    */
   unsubscribeMailto?: string;
+}
+
+/**
+ * Optional campaign-level options for `sendBatchNotification`.
+ */
+export interface SendBatchNotificationOptions {
+  /**
+   * Optional campaign idempotency key; chunked sends derive `${idempotencyKey}/chunk-${chunkIndex}`.
+   */
+  idempotencyKey?: string;
 }
 
 /**
@@ -196,10 +208,17 @@ export interface SendBatchNotificationResult {
 }
 
 /**
- * Parameters for idempotently adding a contact to a Resend audience.
+ * Parameters for idempotently adding a contact to a Resend segment or audience.
  */
 export interface AddAudienceContactParams {
-  audienceId: string;
+  /**
+   * Legacy Resend Audience ID (optional when `segmentIds` is provided).
+   */
+  audienceId?: string;
+  /**
+   * Modern Resend Segment IDs (preferred over legacy `audienceId`).
+   */
+  segmentIds?: readonly string[];
   email: string;
   firstName?: string;
   lastName?: string;
@@ -212,7 +231,8 @@ export interface AddAudienceContactParams {
  */
 export interface AddAudienceContactResult {
   id?: string;
-  audienceId: string;
+  audienceId?: string;
+  segmentIds?: string[];
   email: string;
   created: boolean;
   alreadyExists: boolean;
@@ -228,7 +248,8 @@ export interface EmailClient {
   readonly alertsFrom?: string;
   sendTransactional(params: SendTransactionalParams): Promise<SendTransactionalResult>;
   sendBatchNotification(
-    messages: readonly BatchNotificationMessage[]
+    messages: readonly BatchNotificationMessage[],
+    options?: SendBatchNotificationOptions
   ): Promise<SendBatchNotificationResult>;
   addAudienceContact(params: AddAudienceContactParams): Promise<AddAudienceContactResult>;
 }
