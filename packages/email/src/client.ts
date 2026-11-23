@@ -10,6 +10,7 @@ import {
 } from './domain';
 import {
   assertMessageContent,
+  buildChunkIdempotencyKey,
   buildRenderOptions,
   buildRfc8058Headers,
   createDefaultLogger,
@@ -19,6 +20,7 @@ import {
   normalizeContactProperties,
   normalizeRecipients,
   normalizeTags,
+  throwWithResponseHeaders,
   withRateLimitRetry,
 } from './helpers';
 import type {
@@ -48,6 +50,41 @@ const VALID_APP_IDS = new Set<SunshadeAppId>([
 
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_INITIAL_RETRY_DELAY_MS = 500;
+
+async function enrollExistingContactInSegments(params: {
+  resend: ResendLike;
+  email: string;
+  segmentIds: string[];
+  maxRetries: number;
+  initialRetryDelayMs: number;
+}): Promise<void> {
+  const { resend, email, segmentIds, maxRetries, initialRetryDelayMs } = params;
+  if (segmentIds.length === 0) return;
+
+  const addSegment = resend.contacts.segments?.add;
+  if (typeof addSegment !== 'function') {
+    throw new EmailDispatchError(
+      'Existing contact cannot be added to segments because contacts.segments.add is unavailable on the Resend client.'
+    );
+  }
+
+  for (const segmentId of segmentIds) {
+    await withRateLimitRetry(
+      async () => {
+        const res = await addSegment.call(resend.contacts.segments, { email, segmentId });
+        if (res.error) {
+          if (isContactAlreadyExistsError(res.error)) {
+            return res;
+          }
+          throwWithResponseHeaders(res.error, res.headers);
+        }
+        return res;
+      },
+      maxRetries,
+      initialRetryDelayMs
+    );
+  }
+}
 
 /**
  * Creates a standardized SunShade email client wrapping Resend with subdomain
@@ -83,7 +120,7 @@ export function createEmailClient(config: EmailClientConfig): EmailClient {
   }
 
   const allowedAlertSubdomains = config.allowedAlertSubdomains;
-  const maxRetries = Math.max(1, config.maxRetries ?? DEFAULT_MAX_RETRIES);
+  const maxRetries = Math.max(0, config.maxRetries ?? DEFAULT_MAX_RETRIES);
   const initialRetryDelayMs = Math.max(0, config.initialRetryDelayMs ?? DEFAULT_INITIAL_RETRY_DELAY_MS);
   const logger = config.logger ?? createDefaultLogger(config.appId);
   const resend: ResendLike | null =
@@ -131,7 +168,7 @@ export function createEmailClient(config: EmailClientConfig): EmailClient {
         const response = await withRateLimitRetry(
           async () => {
             const res = await resend.emails.send(payload, requestOptions);
-            if (res.error) throw res.error;
+            if (res.error) throwWithResponseHeaders(res.error, res.headers);
             return res;
           },
           maxRetries,
@@ -245,14 +282,14 @@ export function createEmailClient(config: EmailClientConfig): EmailClient {
       for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
         const chunk = chunks[chunkIndex];
         const requestOptions = baseIdempotencyKey
-          ? { idempotencyKey: `${baseIdempotencyKey}/chunk-${chunkIndex}` }
+          ? { idempotencyKey: buildChunkIdempotencyKey(baseIdempotencyKey, chunkIndex) }
           : undefined;
 
         try {
           const response = await withRateLimitRetry(
             async () => {
               const res = await resend.batch.send(chunk, requestOptions);
-              if (res.error) throw res.error;
+              if (res.error) throwWithResponseHeaders(res.error, res.headers);
               return res;
             },
             maxRetries,
@@ -350,27 +387,24 @@ export function createEmailClient(config: EmailClientConfig): EmailClient {
               ...(properties ? { properties } : {}),
             };
 
-      try {
-        const res = await withRateLimitRetry(
-          async () => {
-            const response = await resend.contacts.create(payload);
-            if (response.error) {
-              if (isContactAlreadyExistsError(response.error)) {
-                return response;
-              }
-              throw response.error;
-            }
-            return response;
-          },
-          maxRetries,
-          initialRetryDelayMs
-        );
-
-        if (res.error && isContactAlreadyExistsError(res.error)) {
-          logger.info('Audience contact already exists (idempotent no-op)', {
-            ...(audienceId ? { audienceId } : {}),
-            ...(segmentIds.length > 0 ? { segmentIds } : {}),
-          });
+      const finalizeExistingContact = async (): Promise<AddAudienceContactResult> => {
+        try {
+          if (segmentIds.length > 0) {
+            await enrollExistingContactInSegments({
+              resend,
+              email,
+              segmentIds,
+              maxRetries,
+              initialRetryDelayMs,
+            });
+            logger.info('Existing contact enrolled into requested segments', {
+              segmentIds,
+            });
+          } else {
+            logger.info('Audience contact already exists (idempotent no-op)', {
+              ...(audienceId ? { audienceId } : {}),
+            });
+          }
           return {
             ...(audienceId ? { audienceId } : {}),
             ...(segmentIds.length > 0 ? { segmentIds } : {}),
@@ -379,6 +413,43 @@ export function createEmailClient(config: EmailClientConfig): EmailClient {
             alreadyExists: true,
             dryRun: false,
           };
+        } catch (segmentErr) {
+          const segMessage = extractErrorMessage(
+            segmentErr,
+            'Failed to enroll existing Resend contact into segments.'
+          );
+          logger.error('Existing contact segment enrollment failed', {
+            segmentIds,
+            error: segMessage,
+          });
+          if (segmentErr instanceof EmailDispatchError) {
+            throw segmentErr;
+          }
+          throw new EmailDispatchError(segMessage, {
+            statusCode: extractStatusCode(segmentErr),
+            cause: segmentErr,
+          });
+        }
+      };
+
+      try {
+        const res = await withRateLimitRetry(
+          async () => {
+            const response = await resend.contacts.create(payload);
+            if (response.error) {
+              if (isContactAlreadyExistsError(response.error)) {
+                return response;
+              }
+              throwWithResponseHeaders(response.error, response.headers);
+            }
+            return response;
+          },
+          maxRetries,
+          initialRetryDelayMs
+        );
+
+        if (res.error && isContactAlreadyExistsError(res.error)) {
+          return await finalizeExistingContact();
         }
 
         const id = res.data?.id;
@@ -397,19 +468,11 @@ export function createEmailClient(config: EmailClientConfig): EmailClient {
           dryRun: false,
         };
       } catch (err) {
+        if (err instanceof EmailDispatchError) {
+          throw err;
+        }
         if (isContactAlreadyExistsError(err)) {
-          logger.info('Audience contact already exists (idempotent no-op)', {
-            ...(audienceId ? { audienceId } : {}),
-            ...(segmentIds.length > 0 ? { segmentIds } : {}),
-          });
-          return {
-            ...(audienceId ? { audienceId } : {}),
-            ...(segmentIds.length > 0 ? { segmentIds } : {}),
-            email,
-            created: false,
-            alreadyExists: true,
-            dryRun: false,
-          };
+          return await finalizeExistingContact();
         }
 
         const message = extractErrorMessage(err, 'Failed to create Resend audience contact.');

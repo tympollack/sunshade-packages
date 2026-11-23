@@ -15,19 +15,25 @@ function createStubResend(): {
   sendEmail: ReturnType<typeof vi.fn>;
   sendBatch: ReturnType<typeof vi.fn>;
   createContact: ReturnType<typeof vi.fn>;
+  addSegment: ReturnType<typeof vi.fn>;
 } {
   const sendEmail = vi.fn();
   const sendBatch = vi.fn();
   const createContact = vi.fn();
+  const addSegment = vi.fn();
   return {
     client: {
       emails: { send: sendEmail },
       batch: { send: sendBatch },
-      contacts: { create: createContact },
+      contacts: {
+        create: createContact,
+        segments: { add: addSegment },
+      },
     },
     sendEmail,
     sendBatch,
     createContact,
+    addSegment,
   };
 }
 
@@ -257,5 +263,165 @@ describe('PR #27 review hardening', () => {
       client.addAudienceContact({ audienceId: 'aud_1', email: 'other@example.com' })
     ).rejects.toThrow(EmailDispatchError);
     expect(stub.createContact).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('PR #29 review hardening', () => {
+  it('enrolls existing contacts into requested segments via contacts.segments.add', async () => {
+    const stub = createStubResend();
+    stub.createContact.mockResolvedValueOnce({
+      data: null,
+      error: { name: 'validation_error', message: 'Contact already exists', statusCode: 409 },
+    });
+    stub.addSegment
+      .mockResolvedValueOnce({ data: { id: 'seg_drops' }, error: null })
+      .mockResolvedValueOnce({ data: { id: 'seg_vip' }, error: null });
+
+    const client = createEmailClient({
+      apiKey: 're_test',
+      appId: 'makerverse',
+      defaultFrom: 'drops@mail.madeintheshade.wtf',
+      resendClient: stub.client,
+    });
+
+    const res = await client.addAudienceContact({
+      email: 'existing@example.com',
+      segmentIds: ['seg_drops', 'seg_vip'],
+    });
+
+    expect(stub.addSegment).toHaveBeenNthCalledWith(1, {
+      email: 'existing@example.com',
+      segmentId: 'seg_drops',
+    });
+    expect(stub.addSegment).toHaveBeenNthCalledWith(2, {
+      email: 'existing@example.com',
+      segmentId: 'seg_vip',
+    });
+    expect(res).toEqual({
+      email: 'existing@example.com',
+      segmentIds: ['seg_drops', 'seg_vip'],
+      created: false,
+      alreadyExists: true,
+      dryRun: false,
+    });
+  });
+
+  it('escapes RFC 6068 mailto characters and avoids upgrading custom GET-only headers', async () => {
+    const stub = createStubResend();
+    stub.sendBatch.mockResolvedValue({ data: { data: [{ id: 'em_1' }] }, error: null });
+
+    const client = createEmailClient({
+      apiKey: 're_test',
+      appId: 'makerverse',
+      defaultFrom: 'drops@mail.madeintheshade.wtf',
+      resendClient: stub.client,
+    });
+
+    await client.sendBatchNotification([
+      {
+        to: 'fan@example.com',
+        subject: 'Drop',
+        html: '<p>Hi</p>',
+        unsubscribeMailto: 'unsubscribe#alerts&vip@example.com',
+      },
+      {
+        to: 'fan2@example.com',
+        subject: 'Drop',
+        html: '<p>Hi</p>',
+        headers: {
+          'List-Unsubscribe': '<https://example.com/preferences>',
+        },
+      },
+      {
+        to: 'fan3@example.com',
+        subject: 'Drop',
+        html: '<p>Hi</p>',
+        headers: {
+          'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+        },
+      },
+    ]);
+
+    expect(stub.sendBatch.mock.calls[0][0][0].headers).toEqual({
+      'List-Unsubscribe': '<mailto:unsubscribe%23alerts%26vip@example.com>',
+    });
+    expect(stub.sendBatch.mock.calls[0][0][1].headers).toEqual({
+      'List-Unsubscribe': '<https://example.com/preferences>',
+    });
+    expect(stub.sendBatch.mock.calls[0][0][2].headers).toBeUndefined();
+  });
+
+  it('caps derived batch idempotency keys at 256 chars and preserves text="" opt-out', async () => {
+    const stub = createStubResend();
+    stub.sendBatch.mockImplementation(async (batch: unknown[]) => ({
+      data: { data: batch.map((_, i) => ({ id: `em_${i}` })) },
+      error: null,
+    }));
+
+    const client = createEmailClient({
+      apiKey: 're_test',
+      appId: 'makerverse',
+      defaultFrom: 'drops@mail.madeintheshade.wtf',
+      resendClient: stub.client,
+    });
+
+    const longKey = 'k'.repeat(250);
+    const messages = Array.from({ length: 120 }, (_, i) => ({
+      to: `u${i}@example.com`,
+      subject: 'Drop',
+      html: '<p>HTML Only</p>',
+      text: '',
+      unsubscribeUrl: 'https://makerverse.sunshade.icu/api/unsubscribe?token=t1',
+    }));
+
+    await client.sendBatchNotification(messages, { idempotencyKey: longKey });
+
+    const key0 = stub.sendBatch.mock.calls[0][1].idempotencyKey as string;
+    const key1 = stub.sendBatch.mock.calls[1][1].idempotencyKey as string;
+    expect(key0.length).toBeLessThanOrEqual(256);
+    expect(key1.length).toBeLessThanOrEqual(256);
+    expect(key0).not.toBe(key1);
+    expect(key0.endsWith('/chunk-0')).toBe(true);
+    expect(key1.endsWith('/chunk-1')).toBe(true);
+    expect(stub.sendBatch.mock.calls[0][0][0].text).toBe('');
+  });
+
+  it('performs 1 retry when maxRetries is 1 and honors Retry-After response headers', async () => {
+    const stub = createStubResend();
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+    stub.sendBatch
+      .mockResolvedValueOnce({
+        data: null,
+        error: { name: 'rate_limit_exceeded', message: 'Too many requests', statusCode: 429 },
+        headers: { 'Retry-After': '0.02' },
+      })
+      .mockResolvedValueOnce({
+        data: { data: [{ id: 'em_ok_1' }] },
+        error: null,
+      });
+
+    const client = createEmailClient({
+      apiKey: 're_test',
+      appId: 'makerverse',
+      defaultFrom: 'drops@mail.madeintheshade.wtf',
+      resendClient: stub.client,
+      maxRetries: 1,
+      initialRetryDelayMs: 0,
+    });
+
+    const res = await client.sendBatchNotification([
+      {
+        to: 'fan@example.com',
+        subject: 'Drop',
+        html: '<p>Go</p>',
+        unsubscribeUrl: 'https://makerverse.sunshade.icu/api/unsubscribe?token=t1',
+      },
+    ]);
+
+    expect(res.ids).toEqual(['em_ok_1']);
+    expect(stub.sendBatch).toHaveBeenCalledTimes(2);
+    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 20);
+    setTimeoutSpy.mockRestore();
   });
 });

@@ -1,4 +1,6 @@
 import type {
+  AddContactSegmentOptions,
+  AddContactSegmentResponse,
   CreateBatchEmailOptions,
   CreateBatchRequestOptions,
   CreateBatchResponse,
@@ -70,6 +72,12 @@ export interface ResendLike {
       payload: CreateContactOptions | LegacyCreateContactOptions,
       options?: CreateContactRequestOptions
     ): Promise<CreateContactResponse>;
+    segments?: {
+      add(
+        options: AddContactSegmentOptions,
+        requestOptions?: CreateContactRequestOptions
+      ): Promise<AddContactSegmentResponse>;
+    };
   };
 }
 
