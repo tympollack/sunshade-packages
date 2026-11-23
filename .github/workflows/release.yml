@@ -26,6 +26,7 @@ on:
           - '@digitalcanopy/supabase'
           - '@digitalcanopy/assets'
           - '@digitalcanopy/audio'
+          - '@digitalcanopy/email'
           - '@digitalcanopy/links'
           - '@digitalcanopy/notifications'
           - '@digitalcanopy/cadence'
