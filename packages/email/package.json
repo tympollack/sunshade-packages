@@ -1,6 +1,6 @@
 {
   "name": "@digitalcanopy/email",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Shared SunShade email client wrapping Resend with subdomain reputation firewalls, app_id tagging, RFC 8058 batch dispatch, and audience contact sync",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",

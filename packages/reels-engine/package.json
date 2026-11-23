@@ -1,6 +1,6 @@
 {
   "name": "@digitalcanopy/reels-engine",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Headless deterministic roll-pool simulation engine, blind skill-check sub-seed probability shifter, encrypted local Stub Vault, Cadence chapter governors, and Miracle Seed ledger evaluator",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",

@@ -1,5 +1,11 @@
 # @digitalcanopy/email
 
+## 0.1.1
+
+### Patch Changes
+
+- Manual patch release for @digitalcanopy/email
+
 ## 0.1.0
 
 ### Minor Changes
