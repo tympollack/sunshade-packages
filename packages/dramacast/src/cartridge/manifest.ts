@@ -69,6 +69,34 @@ function parseSemverTuple(version: string): ParsedSemver | null {
   };
 }
 
+function comparePrereleaseIdentifiers(a: string, b: string): number {
+  const aParts = a.split('.');
+  const bParts = b.split('.');
+  const len = Math.max(aParts.length, bParts.length);
+
+  for (let i = 0; i < len; i++) {
+    if (i >= aParts.length) return -1;
+    if (i >= bParts.length) return 1;
+
+    const partA = aParts[i];
+    const partB = bParts[i];
+    if (partA === partB) continue;
+
+    const aIsNum = /^\d+$/.test(partA);
+    const bIsNum = /^\d+$/.test(partB);
+
+    if (aIsNum && bIsNum) {
+      return Number(partA) - Number(partB);
+    }
+    if (aIsNum !== bIsNum) {
+      return aIsNum ? -1 : 1;
+    }
+    return partA < partB ? -1 : 1;
+  }
+
+  return 0;
+}
+
 /**
  * Returns true if `currentVersion` satisfies `>= minVersion` using SemVer 2.0.0
  * major.minor.patch + prerelease precedence (build metadata ignored).
@@ -91,7 +119,7 @@ export function isVersionAtLeast(
   if (current.prerelease === null && minimum.prerelease !== null) return true;
   if (current.prerelease !== null && minimum.prerelease === null) return false;
   if (current.prerelease !== null && minimum.prerelease !== null) {
-    return current.prerelease >= minimum.prerelease;
+    return comparePrereleaseIdentifiers(current.prerelease, minimum.prerelease) >= 0;
   }
   return true;
 }

@@ -63,13 +63,13 @@ function recordAnonymousPollVote(
   submission: ValeriePollSubmission,
   customStorage?: StorageLike | null
 ): void {
-  const store: StorageLike =
-    customStorage ??
-    (typeof window !== 'undefined' && window.localStorage
-      ? window.localStorage
-      : fallbackMemoryStorage);
-
   try {
+    const store: StorageLike =
+      customStorage ??
+      (typeof window !== 'undefined' && window.localStorage
+        ? window.localStorage
+        : fallbackMemoryStorage);
+
     const raw = store.getItem(VALERIE_POLL_STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
     const list: ValeriePollSubmission[] = Array.isArray(parsed) ? parsed : [];
@@ -83,7 +83,7 @@ function recordAnonymousPollVote(
     ];
     store.setItem(VALERIE_POLL_STORAGE_KEY, JSON.stringify(next));
   } catch {
-    /* ignore storage quota errors */
+    /* ignore blocked browser storage or quota errors */
   }
 }
 

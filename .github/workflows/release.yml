@@ -25,8 +25,12 @@ on:
           - '@digitalcanopy/ui'
           - '@digitalcanopy/supabase'
           - '@digitalcanopy/assets'
+          - '@digitalcanopy/audio'
+          - '@digitalcanopy/links'
           - '@digitalcanopy/notifications'
           - '@digitalcanopy/cadence'
+          - '@digitalcanopy/dramacast'
+          - '@digitalcanopy/reels-engine'
       publish:
         description: 'Publish release to npm registry immediately'
         required: true

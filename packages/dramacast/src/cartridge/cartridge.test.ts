@@ -97,6 +97,10 @@ describe('@digitalcanopy/dramacast Cartridge Plugin Manifest Contract', () => {
     expect(isVersionAtLeast('1.2.3-rc.1+build.7', '1.2.3-rc.1')).toBe(true);
     expect(isVersionAtLeast('1.2.4-rc.1+build.7', '1.2.3')).toBe(true);
     expect(isVersionAtLeast('1.2.3-rc.1+build.7', '1.2.3')).toBe(false);
+    expect(isVersionAtLeast('1.2.3-rc.10', '1.2.3-rc.2')).toBe(true);
+    expect(isVersionAtLeast('1.2.3-rc.2', '1.2.3-rc.10')).toBe(false);
+    expect(isVersionAtLeast('1.2.3-rc.1', '1.2.3-1')).toBe(true);
+    expect(isVersionAtLeast('1.2.3-1', '1.2.3-rc.1')).toBe(false);
 
     const buildMetaManifest = createDefaultCartridgeManifest({
       cartridgeId: 'build-meta-cartridge',
