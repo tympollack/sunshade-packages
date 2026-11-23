@@ -308,6 +308,13 @@ export function isRateLimitError(err: unknown): boolean {
   );
 }
 
+export function encodeEmailPathParam(email: string): string {
+  return email.replace(/[%?#\/\\\s<>"]/g, (ch) => {
+    const hex = Buffer.from(ch, 'utf8').toString('hex').toUpperCase();
+    return hex.replace(/../g, (byte) => `%${byte}`);
+  });
+}
+
 export function isContactAlreadyExistsError(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
   const record = err as Record<string, unknown>;
@@ -315,13 +322,16 @@ export function isContactAlreadyExistsError(err: unknown): boolean {
   const name = typeof record.name === 'string' ? record.name.toLowerCase() : '';
   const message = typeof record.message === 'string' ? record.message.toLowerCase() : '';
 
-  if (statusCode === 409) return true;
+  if (name === 'resource_locked') return false;
   if (
     message.includes('already exists') ||
     message.includes('already in') ||
     message.includes('duplicate')
   ) {
     return true;
+  }
+  if (statusCode === 409) {
+    return !name || name === 'conflict' || name === 'already_exists';
   }
   return name === 'validation_error' && message.includes('contact') && message.includes('exist');
 }
@@ -378,7 +388,9 @@ export function buildRenderOptions(
   text?: string
 ): { html: string; text?: string } | { text: string } {
   if (typeof html === 'string' && html.trim().length > 0) {
-    return text !== undefined ? { html, text } : { html };
+    return text === '' || (typeof text === 'string' && text.trim().length > 0)
+      ? { html, text }
+      : { html };
   }
   return { text: text as string };
 }

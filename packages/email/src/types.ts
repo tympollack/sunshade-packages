@@ -11,6 +11,8 @@ import type {
   CreateEmailRequestOptions,
   CreateEmailResponse,
   LegacyCreateContactOptions,
+  UpdateContactOptions,
+  UpdateContactResponse,
 } from 'resend';
 
 /**
@@ -78,6 +80,10 @@ export interface ResendLike {
         requestOptions?: CreateContactRequestOptions
       ): Promise<AddContactSegmentResponse>;
     };
+    update?(
+      options: UpdateContactOptions,
+      requestOptions?: CreateContactRequestOptions
+    ): Promise<UpdateContactResponse>;
   };
 }
 

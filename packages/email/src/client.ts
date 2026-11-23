@@ -14,6 +14,7 @@ import {
   buildRenderOptions,
   buildRfc8058Headers,
   createDefaultLogger,
+  encodeEmailPathParam,
   extractErrorMessage,
   extractStatusCode,
   isContactAlreadyExistsError,
@@ -51,6 +52,40 @@ const VALID_APP_IDS = new Set<SunshadeAppId>([
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_INITIAL_RETRY_DELAY_MS = 500;
 
+async function applyExistingContactOptOut(params: {
+  resend: ResendLike;
+  email: string;
+  audienceId: string;
+  hasSegments: boolean;
+  maxRetries: number;
+  initialRetryDelayMs: number;
+}): Promise<void> {
+  const { resend, email, audienceId, hasSegments, maxRetries, initialRetryDelayMs } = params;
+  const updateContact = resend.contacts.update;
+  if (typeof updateContact !== 'function') {
+    throw new EmailDispatchError(
+      'Existing contact opt-out cannot be applied because contacts.update is unavailable on the Resend client.'
+    );
+  }
+
+  const pathEmail = encodeEmailPathParam(email);
+  await withRateLimitRetry(
+    async () => {
+      const res = await updateContact.call(resend.contacts, {
+        email: pathEmail,
+        unsubscribed: true,
+        ...(audienceId && !hasSegments ? { audienceId } : {}),
+      });
+      if (res.error) {
+        throwWithResponseHeaders(res.error, res.headers);
+      }
+      return res;
+    },
+    maxRetries,
+    initialRetryDelayMs
+  );
+}
+
 async function enrollExistingContactInSegments(params: {
   resend: ResendLike;
   email: string;
@@ -68,10 +103,14 @@ async function enrollExistingContactInSegments(params: {
     );
   }
 
+  const pathEmail = encodeEmailPathParam(email);
   for (const segmentId of segmentIds) {
     await withRateLimitRetry(
       async () => {
-        const res = await addSegment.call(resend.contacts.segments, { email, segmentId });
+        const res = await addSegment.call(resend.contacts.segments, {
+          email: pathEmail,
+          segmentId,
+        });
         if (res.error) {
           if (isContactAlreadyExistsError(res.error)) {
             return res;
@@ -389,6 +428,16 @@ export function createEmailClient(config: EmailClientConfig): EmailClient {
 
       const finalizeExistingContact = async (): Promise<AddAudienceContactResult> => {
         try {
+          if (params.unsubscribed === true) {
+            await applyExistingContactOptOut({
+              resend,
+              email,
+              audienceId,
+              hasSegments: segmentIds.length > 0,
+              maxRetries,
+              initialRetryDelayMs,
+            });
+          }
           if (segmentIds.length > 0) {
             await enrollExistingContactInSegments({
               resend,
@@ -399,10 +448,12 @@ export function createEmailClient(config: EmailClientConfig): EmailClient {
             });
             logger.info('Existing contact enrolled into requested segments', {
               segmentIds,
+              ...(params.unsubscribed === true ? { unsubscribed: true } : {}),
             });
           } else {
             logger.info('Audience contact already exists (idempotent no-op)', {
               ...(audienceId ? { audienceId } : {}),
+              ...(params.unsubscribed === true ? { unsubscribed: true } : {}),
             });
           }
           return {

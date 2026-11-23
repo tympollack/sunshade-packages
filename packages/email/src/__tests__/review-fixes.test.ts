@@ -16,11 +16,13 @@ function createStubResend(): {
   sendBatch: ReturnType<typeof vi.fn>;
   createContact: ReturnType<typeof vi.fn>;
   addSegment: ReturnType<typeof vi.fn>;
+  updateContact: ReturnType<typeof vi.fn>;
 } {
   const sendEmail = vi.fn();
   const sendBatch = vi.fn();
   const createContact = vi.fn();
   const addSegment = vi.fn();
+  const updateContact = vi.fn();
   return {
     client: {
       emails: { send: sendEmail },
@@ -28,12 +30,14 @@ function createStubResend(): {
       contacts: {
         create: createContact,
         segments: { add: addSegment },
+        update: updateContact,
       },
     },
     sendEmail,
     sendBatch,
     createContact,
     addSegment,
+    updateContact,
   };
 }
 
@@ -423,5 +427,107 @@ describe('PR #29 review hardening', () => {
     expect(stub.sendBatch).toHaveBeenCalledTimes(2);
     expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 20);
     setTimeoutSpy.mockRestore();
+  });
+});
+
+describe('PR #30 review hardening', () => {
+  it('propagates unsubscribed: true before enrolling existing contacts and aborts on update failure', async () => {
+    const stub = createStubResend();
+    const callOrder: string[] = [];
+
+    stub.createContact.mockResolvedValue({
+      data: null,
+      error: { name: 'already_exists', message: 'Contact already exists', statusCode: 409 },
+    });
+    stub.updateContact.mockImplementation(async () => {
+      callOrder.push('update');
+      return { data: { id: 'ct_1', object: 'contact' }, error: null };
+    });
+    stub.addSegment.mockImplementation(async () => {
+      callOrder.push('segment');
+      return { data: { id: 'seg_vip' }, error: null };
+    });
+
+    const client = createEmailClient({
+      apiKey: 're_test',
+      appId: 'makerverse',
+      defaultFrom: 'drops@mail.madeintheshade.wtf',
+      resendClient: stub.client,
+    });
+
+    await client.addAudienceContact({
+      email: 'sam@example.com',
+      segmentIds: ['seg_vip'],
+      unsubscribed: true,
+    });
+    expect(callOrder).toEqual(['update', 'segment']);
+    expect(stub.updateContact).toHaveBeenCalledWith({
+      email: 'sam@example.com',
+      unsubscribed: true,
+    });
+
+    // Does not clear opt-out when unsubscribed is false
+    stub.updateContact.mockClear();
+    stub.addSegment.mockClear();
+    await client.addAudienceContact({
+      email: 'sam@example.com',
+      segmentIds: ['seg_vip'],
+      unsubscribed: false,
+    });
+    expect(stub.updateContact).not.toHaveBeenCalled();
+    expect(stub.addSegment).toHaveBeenCalledTimes(1);
+
+    // Aborts before segment enrollment when contacts.update fails
+    stub.addSegment.mockClear();
+    stub.updateContact.mockResolvedValueOnce({
+      data: null,
+      error: { name: 'internal_server_error', message: 'Update failed', statusCode: 500 },
+    });
+    await expect(
+      client.addAudienceContact({
+        email: 'sam@example.com',
+        segmentIds: ['seg_vip'],
+        unsubscribed: true,
+      })
+    ).rejects.toThrow(EmailDispatchError);
+    expect(stub.addSegment).not.toHaveBeenCalled();
+  });
+
+  it('omits whitespace-only text fallback and does not swallow 409 resource_locked on segments.add', async () => {
+    const stub = createStubResend();
+    stub.sendBatch.mockResolvedValue({ data: { data: [{ id: 'em_ws' }] }, error: null });
+    stub.createContact.mockResolvedValueOnce({
+      data: null,
+      error: { name: 'already_exists', message: 'Contact already exists', statusCode: 409 },
+    });
+    stub.addSegment.mockResolvedValueOnce({
+      data: null,
+      error: { name: 'resource_locked', message: 'Segment locked', statusCode: 409 },
+    });
+
+    const client = createEmailClient({
+      apiKey: 're_test',
+      appId: 'makerverse',
+      defaultFrom: 'drops@mail.madeintheshade.wtf',
+      resendClient: stub.client,
+    });
+
+    await client.sendBatchNotification([
+      {
+        to: 'fan@example.com',
+        subject: 'Drop',
+        html: '<p>HTML fallback test</p>',
+        text: '   \n  ',
+        unsubscribeUrl: 'https://makerverse.sunshade.icu/api/unsubscribe?token=t1',
+      },
+    ]);
+    expect('text' in stub.sendBatch.mock.calls[0][0][0]).toBe(false);
+
+    await expect(
+      client.addAudienceContact({
+        email: 'locked@example.com',
+        segmentIds: ['seg_1'],
+      })
+    ).rejects.toThrow(EmailDispatchError);
   });
 });
