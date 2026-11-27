@@ -35,6 +35,9 @@ jobs:
       - name: Lint & File size guard
         run: npm run lint
 
+      - name: Install Playwright Chromium for UI audit tests
+        run: npx playwright install chromium
+
       - name: Run boundary tests
         run: npm run test:boundaries
 
