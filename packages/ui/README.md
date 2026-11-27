@@ -29,6 +29,7 @@ yarn add @digitalcanopy/ui
   - `Sparkline`: SVG micro-chart with cubic Bézier smoothing and live telemetry tracking.
 - **Headless UI Audit CLI (`sunshade-ui-audit`)**:
   - Zero-config Playwright + `axe-core` audit binary verifying WCAG AA contrast, horizontal overflow, clipped controls, mobile tap targets (`>= 32x32px`), mobile nav triggers, nowrap text wrapping, prose line width (`<= 760px`), clipped scroll containers, and `<img>` integrity.
+  - Prerequisite: ensure a Chromium-compatible browser is available (run `npx playwright install chromium` once, or have Google Chrome / Microsoft Edge installed, or set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`).
   - Usage: `npx sunshade-ui-audit --url http://localhost:3000 --routes /,/dashboard`
 
 ## Usage

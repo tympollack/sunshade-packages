@@ -5,7 +5,7 @@ import { runAudit, formatAuditReport } from './runner';
 export const DEFAULT_VIEWPORTS = 'mobile:375x667,desktop:1280x800';
 
 export function parseViewports(raw: string): ViewportSpec[] {
-  return raw
+  const specs = raw
     .split(',')
     .map((entry) => entry.trim())
     .filter(Boolean)
@@ -23,6 +23,12 @@ export function parseViewports(raw: string): ViewportSpec[] {
         height,
       };
     });
+
+  if (specs.length === 0) {
+    throw new Error('At least one viewport must be specified (e.g. mobile:375x667,desktop:1280x800).');
+  }
+
+  return specs;
 }
 
 export function parseCliArgs(
@@ -72,9 +78,13 @@ export function parseCliArgs(
     .filter(Boolean)
     .map((r) => (r.startsWith('/') || r.startsWith('http') ? r : `/${r}`));
 
+  if (routes.length === 0) {
+    throw new Error('At least one route must be specified (e.g. / or /,/dashboard).');
+  }
+
   return {
     url: url.replace(/\/+$/, ''),
-    routes: routes.length > 0 ? routes : ['/'],
+    routes,
     viewports: parseViewports(viewportsRaw),
     json,
     timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 15000,
@@ -119,10 +129,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
 if (typeof require !== 'undefined' && typeof module !== 'undefined' && require.main === module) {
   main()
     .then((code) => {
-      process.exit(code);
+      process.exitCode = code;
     })
     .catch((err) => {
       console.error(`[sunshade-ui-audit] Fatal error: ${err instanceof Error ? err.message : String(err)}`);
-      process.exit(1);
+      process.exitCode = 1;
     });
 }

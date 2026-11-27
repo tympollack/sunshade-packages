@@ -2,6 +2,10 @@ import React, { useState, useRef, useEffect, useCallback, useId } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '../../utils/cn';
 import { type Placement, calculateFloatingPosition } from '../../utils/floatingAnchor';
+import {
+  registerFloatingOverlay,
+  unregisterFloatingOverlay,
+} from '../Modal/modalManager';
 
 export interface SelectOption {
   value: string;
@@ -28,6 +32,8 @@ export interface SelectProps {
  * Select - Portaled accessible select primitive for @digitalcanopy/ui.
  * Renders options in document.body (z-[100]) with viewport collision padding
  * so parent overflow-hidden containers never clip the listbox.
+ * Uses a single-focus combobox model (`aria-activedescendant` on trigger, `tabIndex={-1}` on options)
+ * and registers in the overlay stack so Escape closes the listbox before any enclosing Modal.
  */
 export function Select({
   options,
@@ -80,6 +86,16 @@ export function Select({
 
   useEffect(() => {
     if (!open) return;
+    registerFloatingOverlay(listboxId);
+    const selectedIdx = options.findIndex((opt) => opt.value === value && !opt.disabled);
+    setActiveIndex(selectedIdx);
+    return () => {
+      unregisterFloatingOverlay(listboxId);
+    };
+  }, [open, listboxId, options, value]);
+
+  useEffect(() => {
+    if (!open) return;
     updatePosition();
     window.addEventListener('scroll', updatePosition, { passive: true, capture: true });
     window.addEventListener('resize', updatePosition, { passive: true });
@@ -120,6 +136,10 @@ export function Select({
         triggerRef.current?.focus();
         return;
       }
+      if (e.key === 'Tab') {
+        setOpen(false);
+        return;
+      }
       if (enabledIndices.length === 0) return;
 
       if (e.key === 'ArrowDown') {
@@ -155,6 +175,11 @@ export function Select({
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [open, options, activeIndex, onChange]);
 
+  const activeOptionId =
+    open && activeIndex >= 0 && options[activeIndex]
+      ? `${listboxId}-opt-${activeIndex}`
+      : undefined;
+
   return (
     <>
       <button
@@ -164,6 +189,7 @@ export function Select({
         aria-label={ariaLabel}
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}
+        aria-activedescendant={activeOptionId}
         aria-haspopup="listbox"
         disabled={disabled}
         data-testid={testID}
@@ -214,12 +240,17 @@ export function Select({
               return (
                 <button
                   key={opt.value}
+                  id={`${listboxId}-opt-${idx}`}
                   type="button"
                   role="option"
+                  tabIndex={-1}
                   aria-selected={isSelected}
                   disabled={opt.disabled}
                   data-testid={`${testID}-option-${opt.value}`}
                   data-active={isActive ? 'true' : undefined}
+                  onMouseEnter={() => {
+                    if (!opt.disabled) setActiveIndex(idx);
+                  }}
                   onClick={(e) => {
                     e.stopPropagation();
                     if (!opt.disabled) {

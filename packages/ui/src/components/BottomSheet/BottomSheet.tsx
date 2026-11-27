@@ -5,6 +5,7 @@ import {
   registerModal,
   unregisterModal,
   isTopmostModal,
+  hasActiveFloatingOverlay,
   trapTabFocus,
 } from '../Modal/modalManager';
 
@@ -127,7 +128,7 @@ export function BottomSheet({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (isTopmostModal(sheetId)) {
+        if (isTopmostModal(sheetId) && !hasActiveFloatingOverlay()) {
           e.stopPropagation();
           e.preventDefault();
           onClose();

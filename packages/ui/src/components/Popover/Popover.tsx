@@ -1,10 +1,14 @@
-import React, { useState, useRef, useEffect, useCallback, cloneElement } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useId, cloneElement } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '../../utils/cn';
 import {
   type Placement,
   calculateFloatingPosition,
 } from '../../utils/floatingAnchor';
+import {
+  registerFloatingOverlay,
+  unregisterFloatingOverlay,
+} from '../Modal/modalManager';
 
 export interface PopoverProps {
   /** Controlled open state */
@@ -53,9 +57,16 @@ export function Popover({
   const isControlled = controlledIsOpen !== undefined;
   const open = isControlled ? controlledIsOpen : internalIsOpen;
 
+  const overlayId = useId();
   const triggerRef = useRef<HTMLElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const [coords, setCoords] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+
+  useEffect(() => {
+    if (!open) return;
+    registerFloatingOverlay(overlayId);
+    return () => unregisterFloatingOverlay(overlayId);
+  }, [open, overlayId]);
 
   const setOpen = useCallback(
     (nextOpen: boolean) => {

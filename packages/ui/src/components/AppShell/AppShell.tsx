@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { cn } from '../../utils/cn';
+import { trapTabFocus } from '../Modal/modalManager';
 
 export interface AppShellSidebarContext {
   collapsed: boolean;
@@ -82,6 +83,14 @@ export function AppShell({
   const [internalCollapsed, setInternalCollapsed] = useState(defaultSidebarCollapsed);
   const [internalMobileOpen, setInternalMobileOpen] = useState(false);
 
+  const mobileToggleRef = useRef<HTMLButtonElement>(null);
+  const drawerRef = useRef<HTMLElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
+  const desktopSidebarRef = useRef<HTMLElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
+  const inspectorRef = useRef<HTMLElement>(null);
+  const wasMobileOpenRef = useRef(false);
+
   const isCollapsedControlled = controlledCollapsed !== undefined;
   const collapsed = isCollapsedControlled ? controlledCollapsed : internalCollapsed;
 
@@ -111,15 +120,66 @@ export function AppShell({
   const closeMobileDrawer = useCallback(() => setMobileOpen(false), [setMobileOpen]);
 
   useEffect(() => {
-    if (!mobileOpen || typeof window === 'undefined') return;
+    if (typeof window === 'undefined') return;
+    const isMobileViewport = () =>
+      typeof window.matchMedia === 'function'
+        ? window.matchMedia('(max-width: 767px)').matches || window.innerWidth < 768
+        : window.innerWidth < 768;
+
+    const coveredRegions = [
+      headerRef.current,
+      desktopSidebarRef.current,
+      mainRef.current,
+      inspectorRef.current,
+    ].filter((el): el is HTMLElement => Boolean(el));
+
+    if (!mobileOpen) {
+      for (const region of coveredRegions) {
+        region.removeAttribute('inert');
+      }
+      if (wasMobileOpenRef.current) {
+        wasMobileOpenRef.current = false;
+        mobileToggleRef.current?.focus();
+      }
+      return;
+    }
+
+    wasMobileOpenRef.current = true;
+    const mobileActive = isMobileViewport();
+
+    if (mobileActive) {
+      for (const region of coveredRegions) {
+        region.setAttribute('inert', '');
+      }
+      const drawerNode = drawerRef.current;
+      if (drawerNode) {
+        const firstFocusable = drawerNode.querySelector<HTMLElement>(
+          'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        );
+        if (firstFocusable) {
+          firstFocusable.focus();
+        } else {
+          drawerNode.focus();
+        }
+      }
+    }
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
         setMobileOpen(false);
+      } else if (e.key === 'Tab' && mobileActive && drawerRef.current) {
+        trapTabFocus(drawerRef.current, e);
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, true);
+      for (const region of coveredRegions) {
+        region.removeAttribute('inert');
+      }
+    };
   }, [mobileOpen, setMobileOpen]);
 
   const showInspector = Boolean(inspector) && (isInspectorOpen ?? true);
@@ -147,6 +207,7 @@ export function AppShell({
     >
       {/* Top Header */}
       <header
+        ref={headerRef}
         data-testid={`${testID}-header`}
         className={cn(
           'h-14 shrink-0 flex items-center justify-between gap-3 px-4 border-b border-stone-800/80 bg-[#1A1A1A]/95 backdrop-blur-md z-30',
@@ -157,6 +218,7 @@ export function AppShell({
           {/* Mandatory mobile drawer toggle button */}
           {sidebar && (
             <button
+              ref={mobileToggleRef}
               type="button"
               onClick={() => setMobileOpen(!mobileOpen)}
               aria-label={mobileMenuAriaLabel}
@@ -236,6 +298,7 @@ export function AppShell({
         {/* Desktop Collapsible LHN */}
         {sidebar && (
           <aside
+            ref={desktopSidebarRef}
             aria-label="Primary navigation"
             data-testid={`${testID}-desktop-sidebar`}
             data-collapsed={collapsed ? 'true' : 'false'}
@@ -259,8 +322,12 @@ export function AppShell({
               className="md:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
             />
             <aside
+              ref={drawerRef}
               id={drawerId}
+              role="dialog"
+              aria-modal="true"
               aria-label="Mobile navigation"
+              tabIndex={-1}
               data-testid={`${testID}-mobile-drawer`}
               className={cn(
                 'fixed inset-y-0 left-0 z-50 w-64 max-w-[82vw] flex flex-col bg-[#141414] border-r border-stone-800 shadow-2xl md:hidden overflow-y-auto overscroll-contain',
@@ -303,6 +370,7 @@ export function AppShell({
 
         {/* Main Canvas */}
         <main
+          ref={mainRef}
           data-testid={`${testID}-main`}
           className={cn('flex-1 min-w-0 min-h-0 overflow-y-auto', mainClassName)}
         >
@@ -312,6 +380,7 @@ export function AppShell({
         {/* Non-blocking Desktop RHN Inspector */}
         {showInspector && (
           <aside
+            ref={inspectorRef}
             aria-label="Inspector"
             data-testid={`${testID}-inspector`}
             className={cn(

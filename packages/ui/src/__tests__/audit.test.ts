@@ -37,7 +37,9 @@ describe('sunshade-ui-audit CLI & Headless Engine', () => {
     <main>
       <h1>Dashboard</h1>
       <p>Clean, high-contrast prose paragraph well below 760px width threshold.</p>
+      <img src="/deferred-offscreen.png" loading="lazy" alt="Deferred asset" width="60" height="60" style="display: block; margin-top: 2400px;" />
     </main>
+    <aside aria-label="Inspector" style="display: none;">Hidden desktop inspector</aside>
   </body>
 </html>`);
         return;
@@ -66,9 +68,11 @@ describe('sunshade-ui-audit CLI & Headless Engine', () => {
     <aside class="desktop-nav">Hidden Sidebar</aside>
     <main>
       <h1>Defective</h1>
+      <button type="button" aria-haspopup="listbox" role="combobox" aria-expanded="false" style="min-width:40px;min-height:40px;">Select</button>
       <p class="low-contrast" data-testid="bad-contrast">Hard to read low contrast text</p>
       <button type="button" class="tiny-btn" data-testid="tiny-target">x</button>
       <span class="nowrap-badge whitespace-nowrap" style="white-space: normal" data-testid="wrapped-badge">Long Wrapping Badge Label</span>
+      <div style="width: 100px; overflow: hidden;"><button type="button" style="width: 160px; min-height: 40px;" data-testid="ancestor-clipped-btn">Clipped Button</button></div>
       <div class="overflow-box" data-testid="wide-box">Overflowing content</div>
       <div class="clipped-scroll" data-testid="clipped-box">
         <div style="height: 180px;">Clipped tall inner content</div>
@@ -119,6 +123,47 @@ describe('sunshade-ui-audit CLI & Headless Engine', () => {
     expect(parsed.json).toBe(true);
 
     expect(() => parseViewports('bad-viewport')).toThrow();
+    expect(() => parseViewports('')).toThrow();
+    expect(() => parseCliArgs(['--viewports='], {})).toThrow();
+    expect(() => parseCliArgs(['--routes='], {})).toThrow();
+  });
+
+  it('rejects empty viewport/route lists in runAudit and sanitizes control chars in report output', async () => {
+    await expect(
+      runAudit({ url: baseUrl, routes: ['/clean'], viewports: [] })
+    ).rejects.toThrow();
+    await expect(
+      runAudit({ url: baseUrl, routes: [], viewports: parseViewports('desktop:1280x800') })
+    ).rejects.toThrow();
+
+    const sanitized = formatAuditReport({
+      baseUrl: 'http://localhost:3000\x1b[31m',
+      routes: ['/'],
+      viewports: [{ name: 'mobile', width: 375, height: 667 }],
+      passed: false,
+      totalViolations: 1,
+      durationMs: 10,
+      results: [
+        {
+          route: '/\nFAKE_PASS',
+          url: 'http://localhost:3000/',
+          viewport: { name: 'mobile', width: 375, height: 667 },
+          passed: false,
+          durationMs: 10,
+          violations: [
+            {
+              category: 'clipped-control',
+              severity: 'error',
+              selector: 'btn\x1b[2J\n  PASS',
+              message: 'msg\x07bell',
+            },
+          ],
+        },
+      ],
+    });
+    expect(sanitized).not.toContain('\x1b');
+    expect(sanitized).not.toContain('\x07');
+    expect(sanitized).not.toContain('\nFAKE_PASS');
   });
 
   it('audits compliant and defective routes across mobile and desktop viewports in one pass', async () => {
@@ -142,6 +187,7 @@ describe('sunshade-ui-audit CLI & Headless Engine', () => {
 
     expect(categories.has('axe-contrast-a11y')).toBe(true);
     expect(categories.has('horizontal-overflow')).toBe(true);
+    expect(categories.has('clipped-control')).toBe(true);
     expect(categories.has('small-tap-target')).toBe(true);
     expect(categories.has('missing-mobile-nav')).toBe(true);
     expect(categories.has('unexpected-text-wrap')).toBe(true);
@@ -154,6 +200,7 @@ describe('sunshade-ui-audit CLI & Headless Engine', () => {
     expect(formatted).toContain('FAIL  /defective');
     expect(formatted).toContain('[data-testid="tiny-target"]');
     expect(formatted).toContain('[data-testid="wrapped-badge"]');
+    expect(formatted).toContain('[data-testid="ancestor-clipped-btn"]');
     expect(formatted).toContain('[data-testid="clipped-box"]');
     expect(formatted).toContain('[data-testid="broken-img"]');
   }, 60000);

@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { Modal, Dialog } from '../components/Modal/Modal';
 import { BottomSheet } from '../components/BottomSheet/BottomSheet';
+import { Select } from '../components/Dropdown/Select';
 
 describe('Modal Primitive Component Suite', () => {
   beforeEach(() => {
@@ -193,6 +194,56 @@ describe('Modal Primitive Component Suite', () => {
     expect(body.className).toContain('flex-1');
     expect(body.className).toContain('overflow-y-auto');
     expect(body.className).toContain('overscroll-contain');
+  });
+
+  it('allows nested scrollable textarea wheel events inside a fitting modal body', () => {
+    render(
+      <Modal isOpen={true} onClose={vi.fn()} title="Nested Scroll" testID="nested-modal">
+        <textarea data-testid="nested-textarea" defaultValue="Line 1\nLine 2\nLine 3" />
+      </Modal>
+    );
+
+    const body = screen.getByTestId('nested-modal-body');
+    Object.defineProperty(body, 'scrollTop', { value: 0, writable: true });
+    Object.defineProperty(body, 'scrollHeight', { value: 120, writable: true });
+    Object.defineProperty(body, 'clientHeight', { value: 120, writable: true });
+
+    const textarea = screen.getByTestId('nested-textarea');
+    Object.defineProperty(textarea, 'scrollTop', { value: 0, writable: true });
+    Object.defineProperty(textarea, 'scrollHeight', { value: 240, writable: true });
+    Object.defineProperty(textarea, 'clientHeight', { value: 60, writable: true });
+
+    const wheelDown = new WheelEvent('wheel', { deltaY: 40, bubbles: true, cancelable: true });
+    textarea.dispatchEvent(wheelDown);
+    expect(wheelDown.defaultPrevented).toBe(false);
+  });
+
+  it('closes an open Select inside Modal on first Escape and Modal on second Escape', () => {
+    const handleClose = vi.fn();
+    render(
+      <Modal isOpen={true} onClose={handleClose} title="Select In Modal" testID="select-modal">
+        <Select
+          options={[
+            { value: 'a', label: 'Alpha' },
+            { value: 'b', label: 'Beta' },
+          ]}
+          value="a"
+          testID="modal-select"
+        />
+      </Modal>
+    );
+
+    fireEvent.click(screen.getByTestId('modal-select'));
+    expect(screen.getByTestId('modal-select-menu')).toBeDefined();
+
+    // First Escape closes Select only; Modal stays open
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByTestId('modal-select-menu')).toBeNull();
+    expect(handleClose).not.toHaveBeenCalled();
+
+    // Second Escape closes Modal
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(handleClose).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -5,6 +5,7 @@ import {
   registerModal,
   unregisterModal,
   isTopmostModal,
+  hasActiveFloatingOverlay,
   trapTabFocus,
   handleScrollContainment,
 } from './modalManager';
@@ -127,7 +128,7 @@ export function Modal({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && closeOnEscape) {
-        if (isTopmostModal(modalId)) {
+        if (isTopmostModal(modalId) && !hasActiveFloatingOverlay()) {
           e.stopPropagation();
           e.preventDefault();
           onClose();
@@ -154,7 +155,8 @@ export function Modal({
         el,
         e.deltaY,
         () => e.preventDefault(),
-        () => e.stopPropagation()
+        () => e.stopPropagation(),
+        e.target
       );
     };
 

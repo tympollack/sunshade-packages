@@ -115,36 +115,54 @@ export async function runPageAuditChecks(
   }
 }
 
+function sanitizeTerminalText(value: string): string {
+  return value.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 export async function runAudit(options: AuditOptions): Promise<AuditReport> {
+  if (!options.routes || options.routes.length === 0) {
+    throw new Error('runAudit requires at least one route.');
+  }
+  if (!options.viewports || options.viewports.length === 0) {
+    throw new Error('runAudit requires at least one viewport.');
+  }
+
   const startedAt = Date.now();
   const browser = await launchAuditBrowser(options.executablePath);
   const results: RouteViewportReport[] = [];
 
   try {
-    const context = await browser.newContext();
-    const page = await context.newPage();
+    for (const viewport of options.viewports) {
+      const isMobile = viewport.width < 768;
+      const context = await browser.newContext({
+        viewport: { width: viewport.width, height: viewport.height },
+        isMobile,
+        hasTouch: isMobile,
+      });
+      const page = await context.newPage();
 
-    for (const route of options.routes) {
-      const targetUrl = buildTargetUrl(options.url, route);
-      for (const viewport of options.viewports) {
-        const result = await runPageAuditChecks(
-          page,
-          viewport,
-          route,
-          targetUrl,
-          options.timeoutMs ?? 15000
-        );
-        results.push(result);
+      try {
+        for (const route of options.routes) {
+          const targetUrl = buildTargetUrl(options.url, route);
+          const result = await runPageAuditChecks(
+            page,
+            viewport,
+            route,
+            targetUrl,
+            options.timeoutMs ?? 15000
+          );
+          results.push(result);
+        }
+      } finally {
+        await context.close();
       }
     }
-
-    await context.close();
   } finally {
     await browser.close();
   }
 
   const totalViolations = results.reduce((sum, r) => sum + r.violations.length + (r.error ? 1 : 0), 0);
-  const passed = results.every((r) => r.passed);
+  const passed = results.length > 0 && results.every((r) => r.passed);
 
   return {
     baseUrl: options.url,
@@ -159,23 +177,26 @@ export async function runAudit(options: AuditOptions): Promise<AuditReport> {
 
 export function formatAuditReport(report: AuditReport): string {
   const lines: string[] = [];
-  lines.push(`\nsunshade-ui-audit -> ${report.baseUrl} (${report.durationMs}ms)`);
+  lines.push(`\nsunshade-ui-audit -> ${sanitizeTerminalText(report.baseUrl)} (${report.durationMs}ms)`);
 
   for (const r of report.results) {
-    const vpLabel = `${r.viewport.name}:${r.viewport.width}x${r.viewport.height}`;
+    const vpLabel = `${sanitizeTerminalText(r.viewport.name)}:${r.viewport.width}x${r.viewport.height}`;
+    const safeRoute = sanitizeTerminalText(r.route);
     if (r.passed) {
-      lines.push(`  PASS  ${r.route} [${vpLabel}] (${r.durationMs}ms)`);
+      lines.push(`  PASS  ${safeRoute} [${vpLabel}] (${r.durationMs}ms)`);
       continue;
     }
 
-    lines.push(`  FAIL  ${r.route} [${vpLabel}] (${r.durationMs}ms)`);
+    lines.push(`  FAIL  ${safeRoute} [${vpLabel}] (${r.durationMs}ms)`);
     if (r.error) {
-      lines.push(`    - [navigation-error] ${r.error}`);
+      lines.push(`    - [navigation-error] ${sanitizeTerminalText(r.error)}`);
     }
     for (const v of r.violations) {
-      lines.push(`    - [${v.category}] selector="${v.selector}" :: ${v.message}`);
+      lines.push(
+        `    - [${v.category}] selector="${sanitizeTerminalText(v.selector)}" :: ${sanitizeTerminalText(v.message)}`
+      );
       if (v.details) {
-        lines.push(`      details: ${v.details.replace(/\s+/g, ' ').trim()}`);
+        lines.push(`      details: ${sanitizeTerminalText(v.details)}`);
       }
     }
   }

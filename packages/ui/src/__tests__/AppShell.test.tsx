@@ -76,10 +76,22 @@ describe('AppShell Responsive 3-Pane Primitive', () => {
     const drawer = screen.getByTestId('canopy-app-shell-mobile-drawer');
     expect(drawer).toBeDefined();
     expect(drawer.className).toContain('fixed inset-y-0 left-0 z-50');
+    expect(drawer.getAttribute('role')).toBe('dialog');
+    expect(drawer.getAttribute('aria-modal')).toBe('true');
 
-    // Dismiss via Escape key
+    // Focus moves into the drawer and covered regions become inert
+    const header = screen.getByTestId('canopy-app-shell-header');
+    const main = screen.getByTestId('canopy-app-shell-main');
+    expect(header.hasAttribute('inert')).toBe(true);
+    expect(main.hasAttribute('inert')).toBe(true);
+    expect(drawer.contains(document.activeElement)).toBe(true);
+
+    // Dismiss via Escape key restores focus and removes inert
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByTestId('canopy-app-shell-mobile-drawer')).toBeNull();
+    expect(header.hasAttribute('inert')).toBe(false);
+    expect(main.hasAttribute('inert')).toBe(false);
+    expect(document.activeElement).toBe(mobileToggle);
   });
 
   it('renders non-blocking desktop RHN inspector with pointer-events-auto without blocking main canvas', () => {

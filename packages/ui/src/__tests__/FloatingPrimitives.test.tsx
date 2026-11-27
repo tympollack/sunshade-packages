@@ -323,5 +323,40 @@ describe('Floating Primitives (Popover, Tooltip, DropdownMenu)', () => {
       expect(handleChange).toHaveBeenCalledWith('breezy');
       expect(screen.queryByTestId('vibe-select-menu')).toBeNull();
     });
+
+    it('uses single-focus aria-activedescendant model and closes on Tab', () => {
+      const handleChange = vi.fn();
+      const options = [
+        { value: 'sunshine', label: 'Sunshine' },
+        { value: 'breezy', label: 'Breezy' },
+        { value: 'cozy', label: 'Cozy' },
+      ];
+
+      render(
+        <Select options={options} value="sunshine" onChange={handleChange} testID="kb-select" />
+      );
+
+      const trigger = screen.getByTestId('kb-select');
+      trigger.focus();
+      fireEvent.click(trigger);
+
+      const firstOpt = screen.getByTestId('kb-select-option-sunshine');
+      expect(firstOpt.getAttribute('tabindex')).toBe('-1');
+
+      fireEvent.keyDown(window, { key: 'End' });
+      expect(trigger.getAttribute('aria-activedescendant')).toBe(
+        screen.getByTestId('kb-select-option-cozy').id
+      );
+
+      fireEvent.keyDown(window, { key: 'Enter' });
+      expect(handleChange).toHaveBeenCalledWith('cozy');
+      expect(screen.queryByTestId('kb-select-menu')).toBeNull();
+
+      // Re-open and press Tab: closes without stealing focus
+      fireEvent.click(trigger);
+      expect(screen.getByTestId('kb-select-menu')).toBeDefined();
+      fireEvent.keyDown(window, { key: 'Tab' });
+      expect(screen.queryByTestId('kb-select-menu')).toBeNull();
+    });
   });
 });

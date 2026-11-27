@@ -102,6 +102,36 @@ export function evaluateDomGuardrails(viewportWidth: number): AuditViolation[] {
         selector,
         message: `Interactive control extends outside [0, ${viewportWidth}] viewport bounds (left=${Math.round(rect.left)}, right=${Math.round(rect.right)})`,
       });
+    } else {
+      // Check if an ancestor with overflow: hidden|clip cuts off this control inside the viewport
+      let ancestor = el.parentElement;
+      while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
+        const aStyle = window.getComputedStyle(ancestor);
+        const aClass = typeof ancestor.className === 'string' ? ancestor.className : '';
+        const isTextTruncate =
+          aStyle.textOverflow === 'ellipsis' ||
+          aClass.includes('truncate') ||
+          aClass.includes('line-clamp');
+        if (!isTextTruncate) {
+          const aRect = ancestor.getBoundingClientRect();
+          const clipsX =
+            (aStyle.overflowX === 'hidden' || aStyle.overflowX === 'clip') &&
+            (rect.left < aRect.left - 1 || rect.right > aRect.right + 1);
+          const clipsY =
+            (aStyle.overflowY === 'hidden' || aStyle.overflowY === 'clip') &&
+            (rect.top < aRect.top - 1 || rect.bottom > aRect.bottom + 1);
+          if (clipsX || clipsY) {
+            violations.push({
+              category: 'clipped-control',
+              severity: 'error',
+              selector,
+              message: `Interactive control is clipped by ancestor ${buildSelector(ancestor)} (${clipsX ? 'horizontal' : 'vertical'} overflow: ${clipsX ? aStyle.overflowX : aStyle.overflowY})`,
+            });
+            break;
+          }
+        }
+        ancestor = ancestor.parentElement;
+      }
     }
 
     if (viewportWidth < 768) {
@@ -144,8 +174,12 @@ export function evaluateDomGuardrails(viewportWidth: number): AuditViolation[] {
       }
     }
 
-    // 4. Missing Mobile Nav Trigger when Desktop Sidebar is Hidden
-    const navElements = Array.from(document.querySelectorAll('aside, nav, [role="navigation"]'));
+    // 4. Missing Mobile Nav Trigger when Desktop Navigation/Sidebar is Hidden
+    const navElements = Array.from(
+      document.querySelectorAll(
+        'nav, [role="navigation"], aside[aria-label*="nav" i], aside[aria-label*="sidebar" i], aside[data-testid*="sidebar" i], aside[class*="sidebar" i], aside[class*="nav" i]'
+      )
+    );
     const hasHiddenDesktopNav = navElements.some((navEl) => {
       const style = window.getComputedStyle(navEl);
       return style.display === 'none';
@@ -153,15 +187,34 @@ export function evaluateDomGuardrails(viewportWidth: number): AuditViolation[] {
 
     if (hasHiddenDesktopNav) {
       const hasVisibleNavTrigger = interactiveEls.some((el) => {
+        const tag = el.tagName.toLowerCase();
+        const role = el.getAttribute('role');
+        const haspopup = el.getAttribute('aria-haspopup');
+        if (
+          tag === 'select' ||
+          tag === 'input' ||
+          tag === 'textarea' ||
+          role === 'combobox' ||
+          haspopup === 'listbox' ||
+          haspopup === 'menu'
+        ) {
+          return false;
+        }
         const label = (
           el.getAttribute('aria-label') ||
           el.getAttribute('data-testid') ||
           el.textContent ||
           ''
         ).toLowerCase();
+        const controlsId = el.getAttribute('aria-controls');
+        const controlledEl = controlsId ? document.getElementById(controlsId) : null;
+        const controlsNav = Boolean(
+          controlledEl &&
+            (controlledEl.matches('nav, aside, [role="navigation"]') ||
+              /nav|menu|sidebar|drawer/i.test(controlsId || ''))
+        );
         return (
-          el.hasAttribute('aria-controls') ||
-          el.hasAttribute('aria-expanded') ||
+          controlsNav ||
           label.includes('menu') ||
           label.includes('nav') ||
           label.includes('sidebar') ||
@@ -263,8 +316,18 @@ export function evaluateDomGuardrails(viewportWidth: number): AuditViolation[] {
     }
   }
 
-  // 8. Asset Integrity (visible <img> elements)
+  // 8. Asset Integrity (visible eager or in-viewport <img> elements)
+  const viewportHeight = window.innerHeight;
   for (const img of Array.from(document.querySelectorAll('img')).filter(isVisible)) {
+    const rect = img.getBoundingClientRect();
+    const isOffscreen =
+      rect.bottom <= 0 ||
+      rect.top >= viewportHeight ||
+      rect.right <= 0 ||
+      rect.left >= viewportWidth;
+    if (img.loading === 'lazy' && isOffscreen) {
+      continue;
+    }
     if (!img.complete || img.naturalWidth === 0) {
       violations.push({
         category: 'broken-image',

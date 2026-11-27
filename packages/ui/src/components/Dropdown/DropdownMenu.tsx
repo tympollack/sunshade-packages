@@ -1,10 +1,14 @@
-import React, { useState, useRef, useEffect, useCallback, cloneElement } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useId, cloneElement } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '../../utils/cn';
 import {
   type Placement,
   calculateFloatingPosition,
 } from '../../utils/floatingAnchor';
+import {
+  registerFloatingOverlay,
+  unregisterFloatingOverlay,
+} from '../Modal/modalManager';
 
 export interface DropdownMenuItem {
   /** Unique item identifier */
@@ -64,10 +68,17 @@ export function DropdownMenu({
   const isControlled = controlledIsOpen !== undefined;
   const open = isControlled ? controlledIsOpen : internalIsOpen;
 
+  const overlayId = useId();
   const [activeIndex, setActiveIndex] = useState<number>(-1);
   const triggerRef = useRef<HTMLElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [coords, setCoords] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+
+  useEffect(() => {
+    if (!open) return;
+    registerFloatingOverlay(overlayId);
+    return () => unregisterFloatingOverlay(overlayId);
+  }, [open, overlayId]);
 
   const setOpen = useCallback(
     (nextOpen: boolean) => {
