@@ -5,6 +5,7 @@ import {
   registerModal,
   unregisterModal,
   isTopmostModal,
+  hasActiveFloatingOverlay,
   trapTabFocus,
   handleScrollContainment,
 } from './modalManager';
@@ -115,7 +116,7 @@ export function ModalShell({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (isTopmostModal(modalId)) {
+        if (isTopmostModal(modalId) && !hasActiveFloatingOverlay()) {
           e.stopPropagation();
           e.preventDefault();
           onClose();
@@ -153,7 +154,8 @@ export function ModalShell({
         el,
         e.deltaY,
         () => e.preventDefault(),
-        () => e.stopPropagation()
+        () => e.stopPropagation(),
+        e.target
       );
     };
 
@@ -169,7 +171,8 @@ export function ModalShell({
         scrollBodyRef.current,
         e.deltaY,
         () => e.preventDefault(),
-        () => e.stopPropagation()
+        () => e.stopPropagation(),
+        e.target
       );
     }
   };

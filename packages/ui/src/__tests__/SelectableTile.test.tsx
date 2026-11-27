@@ -4,7 +4,10 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { SelectableTile } from '../components/SelectableTile';
 import {
   type SelectableTileVariant,
+  type PairedThemeVariant,
   VARIANT_CONTRAST_TOKENS,
+  PAIRED_THEME_VARIANTS,
+  PAIRED_TYPOGRAPHY,
   CONTRAST_TYPOGRAPHY,
   calculateContrastRatio,
   parseHexToRgb,
@@ -214,5 +217,40 @@ describe('SelectableTile Component Behavior & Accessibility', () => {
 
     fireEvent.click(tile);
     expect(handleClick).not.toHaveBeenCalled();
+  });
+
+  it('supports paired high-contrast theme variants (sunshine, breezy, raincloud, sunshade, cozy) in dark and light modes', () => {
+    const pairedVariants: PairedThemeVariant[] = ['sunshine', 'breezy', 'raincloud', 'sunshade', 'cozy'];
+
+    for (const variant of pairedVariants) {
+      const token = PAIRED_THEME_VARIANTS[variant];
+      const darkTitleRgb = parseHexToRgb(PAIRED_TYPOGRAPHY.dark.title.color);
+      const darkDescRgb = parseHexToRgb(PAIRED_TYPOGRAPHY.dark.description.color);
+      expect(calculateContrastRatio(darkTitleRgb, token.effectiveSurfaceRgb)).toBeGreaterThanOrEqual(7.0);
+      expect(calculateContrastRatio(darkDescRgb, token.effectiveSurfaceRgb)).toBeGreaterThanOrEqual(4.5);
+
+      const lightTitleRgb = parseHexToRgb(PAIRED_TYPOGRAPHY.light.title.color);
+      const lightDescRgb = parseHexToRgb(PAIRED_TYPOGRAPHY.light.description.color);
+      expect(calculateContrastRatio(lightTitleRgb, token.effectiveLightSurfaceRgb)).toBeGreaterThanOrEqual(7.0);
+      expect(calculateContrastRatio(lightDescRgb, token.effectiveLightSurfaceRgb)).toBeGreaterThanOrEqual(4.5);
+
+      const { unmount } = render(
+        <SelectableTile
+          selected={true}
+          variant={variant}
+          theme="light"
+          icon={<span>✨</span>}
+          title={`${variant} title`}
+          description="Accessible light description"
+          testID={`paired-${variant}`}
+        />
+      );
+
+      const titleEl = screen.getByText(`${variant} title`);
+      expect(titleEl.className).toContain('text-stone-900');
+      const descEl = screen.getByText('Accessible light description');
+      expect(descEl.className).toContain('text-stone-600');
+      unmount();
+    }
   });
 });

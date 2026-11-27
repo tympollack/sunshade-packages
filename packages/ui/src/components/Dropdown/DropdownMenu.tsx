@@ -1,10 +1,14 @@
-import React, { useState, useRef, useEffect, useCallback, cloneElement } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useId, cloneElement } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '../../utils/cn';
 import {
   type Placement,
   calculateFloatingPosition,
 } from '../../utils/floatingAnchor';
+import {
+  registerFloatingOverlay,
+  unregisterFloatingOverlay,
+} from '../Modal/modalManager';
 
 export interface DropdownMenuItem {
   /** Unique item identifier */
@@ -36,6 +40,8 @@ export interface DropdownMenuProps {
   placement?: Placement;
   /** Distance from trigger (default 6) */
   offset?: number;
+  /** Viewport edge collision padding in px (default 12) */
+  viewportPadding?: number;
   /** Additional styling on dropdown container */
   className?: string;
   /** Test identifier */
@@ -44,7 +50,7 @@ export interface DropdownMenuProps {
 
 /**
  * DropdownMenu - Portal-anchored floating dropdown menu primitive for @digitalcanopy/ui.
- * Mounts in a React Portal, positions relative to trigger with collision flip/shift,
+ * Mounts in a React Portal (z-[100]), positions relative to trigger with collision flip/shift,
  * and provides full keyboard arrow navigation (ArrowDown, ArrowUp, Home, End, Enter, Escape).
  */
 export function DropdownMenu({
@@ -54,6 +60,7 @@ export function DropdownMenu({
   onOpenChange,
   placement = 'bottom-start',
   offset = 6,
+  viewportPadding = 12,
   className,
   testID = 'canopy-dropdown',
 }: DropdownMenuProps) {
@@ -61,10 +68,17 @@ export function DropdownMenu({
   const isControlled = controlledIsOpen !== undefined;
   const open = isControlled ? controlledIsOpen : internalIsOpen;
 
+  const overlayId = useId();
   const [activeIndex, setActiveIndex] = useState<number>(-1);
   const triggerRef = useRef<HTMLElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [coords, setCoords] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+
+  useEffect(() => {
+    if (!open) return;
+    registerFloatingOverlay(overlayId);
+    return () => unregisterFloatingOverlay(overlayId);
+  }, [open, overlayId]);
 
   const setOpen = useCallback(
     (nextOpen: boolean) => {
@@ -90,9 +104,10 @@ export function DropdownMenu({
     const result = calculateFloatingPosition(triggerRect, menuRect, {
       placement,
       offset,
+      viewportPadding,
     });
     setCoords({ top: result.top, left: result.left });
-  }, [placement, offset, items.length]);
+  }, [placement, offset, viewportPadding, items.length]);
 
   useEffect(() => {
     if (!open) return;
@@ -244,10 +259,10 @@ export function DropdownMenu({
               position: 'absolute',
               top: `${coords.top}px`,
               left: `${coords.left}px`,
-              zIndex: 9999,
+              zIndex: 100,
             }}
             className={cn(
-              'min-w-[180px] p-1.5 outline-none',
+              'z-[100] min-w-[180px] max-w-[calc(100vw-24px)] max-h-[min(320px,calc(100dvh-24px))] overflow-y-auto overscroll-contain p-1.5 outline-none',
               'bg-stone-900/95 backdrop-blur-md border border-stone-800 shadow-xl rounded-lg text-stone-100',
               'animate-in fade-in zoom-in-95 duration-100',
               className

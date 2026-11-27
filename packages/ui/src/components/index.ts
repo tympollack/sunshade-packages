@@ -27,3 +27,4 @@ export * from './ProgressBar';
 export * from './Skeleton';
 export * from './DataTable';
 export * from './Sparkline';
+export * from './AppShell';

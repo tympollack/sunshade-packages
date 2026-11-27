@@ -29,7 +29,7 @@ export function calculateFloatingPosition(
   floatingSize: { width: number; height: number },
   options: FloatingPositionOptions = {}
 ): FloatingPositionResult {
-  const { placement = 'bottom', offset = 8, viewportPadding = 8 } = options;
+  const { placement = 'bottom', offset = 8, viewportPadding = 12 } = options;
 
   const scrollX = typeof window !== 'undefined' ? window.scrollX : 0;
   const scrollY = typeof window !== 'undefined' ? window.scrollY : 0;
@@ -38,7 +38,7 @@ export function calculateFloatingPosition(
 
   let chosenPlacement = placement;
 
-  // Collision flip checks
+  // Collision flip checks (vertical and horizontal)
   if (chosenPlacement.startsWith('bottom')) {
     const bottomEdge = triggerRect.bottom + offset + floatingSize.height;
     if (bottomEdge > viewportHeight - viewportPadding && triggerRect.top - offset - floatingSize.height >= viewportPadding) {
@@ -48,6 +48,16 @@ export function calculateFloatingPosition(
     const topEdge = triggerRect.top - offset - floatingSize.height;
     if (topEdge < viewportPadding && triggerRect.bottom + offset + floatingSize.height <= viewportHeight - viewportPadding) {
       chosenPlacement = chosenPlacement.replace('top', 'bottom') as Placement;
+    }
+  } else if (chosenPlacement === 'left') {
+    const leftEdge = triggerRect.left - offset - floatingSize.width;
+    if (leftEdge < viewportPadding && triggerRect.right + offset + floatingSize.width <= viewportWidth - viewportPadding) {
+      chosenPlacement = 'right';
+    }
+  } else if (chosenPlacement === 'right') {
+    const rightEdge = triggerRect.right + offset + floatingSize.width;
+    if (rightEdge > viewportWidth - viewportPadding && triggerRect.left - offset - floatingSize.width >= viewportPadding) {
+      chosenPlacement = 'left';
     }
   }
 

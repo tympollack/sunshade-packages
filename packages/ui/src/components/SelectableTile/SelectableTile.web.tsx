@@ -1,16 +1,20 @@
 import React from 'react';
 import { cn } from '../../utils/cn';
 import {
-  type SelectableTileVariant,
-  VARIANT_CONTRAST_TOKENS,
+  type AnyContrastVariant,
+  type ContrastThemeMode,
   CONTRAST_TYPOGRAPHY,
+  PAIRED_TYPOGRAPHY,
+  resolveContrastToken,
 } from '../../tokens/contrast';
 
 export interface SelectableTileProps {
   /** Whether the tile is in an active/selected state */
   selected: boolean;
   /** Accent variant color for border, surface tint, and icon badge */
-  variant: SelectableTileVariant;
+  variant: AnyContrastVariant;
+  /** Color mode for paired high-contrast foreground tokens (default 'dark') */
+  theme?: ContrastThemeMode;
   /** Icon or emoji element rendered in the leading badge */
   icon: React.ReactNode;
   /** High-contrast primary title (#F9F9F9 / text-stone-100) */
@@ -44,6 +48,7 @@ export interface SelectableTileProps {
 export function SelectableTile({
   selected,
   variant = 'stone',
+  theme = 'dark',
   icon,
   title,
   description,
@@ -56,7 +61,10 @@ export function SelectableTile({
   trailing,
   testID,
 }: SelectableTileProps) {
-  const token = VARIANT_CONTRAST_TOKENS[variant] || VARIANT_CONTRAST_TOKENS.stone;
+  const token = resolveContrastToken(variant);
+  const typography = theme === 'light' ? PAIRED_TYPOGRAPHY.light : CONTRAST_TYPOGRAPHY;
+  const effectiveSurfaceHex =
+    theme === 'light' ? token.effectiveLightSurfaceHex : token.effectiveSurfaceHex;
 
   const handleClick = () => {
     if (disabled) return;
@@ -76,10 +84,10 @@ export function SelectableTile({
   };
 
   const containerClasses = cn(
-    // Base layout & opaque dark surface ensuring contrast on any parent theme
+    // Base layout & opaque surface ensuring contrast on any parent theme
     'w-full flex items-center gap-3.5 p-4 rounded-2xl border text-left',
     'transition-all duration-150 select-none relative overflow-hidden',
-    'bg-[#1A1A1A]',
+    theme === 'light' ? 'bg-[#F9F9F9]' : 'bg-[#1A1A1A]',
     token.surfaceTintClass,
     // Tactile & focus states
     'active:scale-[0.98]',
@@ -98,7 +106,7 @@ export function SelectableTile({
     'data-testid': testID,
     className: containerClasses,
     style: {
-      backgroundColor: token.effectiveSurfaceHex,
+      backgroundColor: effectiveSurfaceHex,
       ...style,
     },
     onClick: handleClick,
@@ -113,9 +121,10 @@ export function SelectableTile({
       {/* Icon Badge with status accent background */}
       <div
         className={cn(
-          'w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border border-white/10 shadow-sm text-xl',
+          'w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border shadow-sm text-xl',
+          theme === 'light' ? 'border-black/10' : 'border-white/10',
           token.iconBgClass,
-          token.iconTextClass
+          theme === 'light' ? token.lightIconTextClass : token.iconTextClass
         )}
         aria-hidden="true"
       >
@@ -128,9 +137,9 @@ export function SelectableTile({
           <span
             className={cn(
               'font-semibold text-sm sm:text-base leading-snug tracking-tight',
-              CONTRAST_TYPOGRAPHY.title.className
+              typography.title.className
             )}
-            style={{ color: CONTRAST_TYPOGRAPHY.title.color }}
+            style={{ color: typography.title.color }}
           >
             {title}
           </span>
@@ -139,9 +148,9 @@ export function SelectableTile({
         <p
           className={cn(
             'text-xs leading-relaxed mt-0.5 line-clamp-2',
-            CONTRAST_TYPOGRAPHY.description.className
+            typography.description.className
           )}
-          style={{ color: CONTRAST_TYPOGRAPHY.description.color }}
+          style={{ color: typography.description.color }}
         >
           {description}
         </p>
