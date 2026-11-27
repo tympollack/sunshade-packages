@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
-import { Modal } from '../components/Modal/Modal';
+import { Modal, Dialog } from '../components/Modal/Modal';
 import { BottomSheet } from '../components/BottomSheet/BottomSheet';
 
 describe('Modal Primitive Component Suite', () => {
@@ -168,6 +168,31 @@ describe('Modal Primitive Component Suite', () => {
 
     // Focus must NOT be hijacked to background Modal A
     expect(document.activeElement).not.toBe(btnA1);
+  });
+
+  it('enforces viewport-bounded 85dvh scrollable geometry and Dialog alias', () => {
+    render(
+      <Dialog
+        isOpen={true}
+        onClose={vi.fn()}
+        title="Vibe Picker"
+        footer={<button>Done</button>}
+        testID="bounded-dialog"
+      >
+        <div style={{ height: 1200 }}>6+ tiles</div>
+      </Dialog>
+    );
+
+    const dialog = screen.getByTestId('bounded-dialog');
+    expect(dialog.className).toContain('max-h-[85dvh]');
+    expect(dialog.className).toContain('flex');
+    expect(dialog.className).toContain('flex-col');
+    expect(dialog.className).toContain('overflow-hidden');
+
+    const body = screen.getByTestId('bounded-dialog-body');
+    expect(body.className).toContain('flex-1');
+    expect(body.className).toContain('overflow-y-auto');
+    expect(body.className).toContain('overscroll-contain');
   });
 });
 
