@@ -8,14 +8,17 @@ import {
 } from 'react-native';
 import { cn } from '../../utils/cn';
 import {
-  type SelectableTileVariant,
-  VARIANT_CONTRAST_TOKENS,
+  type AnyContrastVariant,
+  type ContrastThemeMode,
   CONTRAST_TYPOGRAPHY,
+  PAIRED_TYPOGRAPHY,
+  resolveContrastToken,
 } from '../../tokens/contrast';
 
 export interface SelectableTileProps {
   selected: boolean;
-  variant: SelectableTileVariant;
+  variant: AnyContrastVariant;
+  theme?: ContrastThemeMode;
   icon: React.ReactNode;
   title: string;
   description: string;
@@ -36,6 +39,7 @@ export interface SelectableTileProps {
 export function SelectableTile({
   selected,
   variant = 'stone',
+  theme = 'dark',
   icon,
   title,
   description,
@@ -47,7 +51,10 @@ export function SelectableTile({
   trailing,
   testID,
 }: SelectableTileProps) {
-  const token = VARIANT_CONTRAST_TOKENS[variant] || VARIANT_CONTRAST_TOKENS.stone;
+  const token = resolveContrastToken(variant);
+  const typography = theme === 'light' ? PAIRED_TYPOGRAPHY.light : CONTRAST_TYPOGRAPHY;
+  const effectiveSurfaceHex =
+    theme === 'light' ? token.effectiveLightSurfaceHex : token.effectiveSurfaceHex;
 
   const handlePress = () => {
     if (disabled) return;
@@ -77,8 +84,8 @@ export function SelectableTile({
       style={[
         styles.tileBase,
         {
-          backgroundColor: token.effectiveSurfaceHex,
-          borderColor: selected ? token.accent : 'rgba(255, 255, 255, 0.1)',
+          backgroundColor: effectiveSurfaceHex,
+          borderColor: selected ? token.accent : theme === 'light' ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.1)',
           borderWidth: selected ? 2 : 1,
         },
         style,
@@ -98,7 +105,7 @@ export function SelectableTile({
         <View className="flex-row items-center justify-between">
           <Text
             className="font-semibold text-base"
-            style={{ color: CONTRAST_TYPOGRAPHY.title.color }}
+            style={{ color: typography.title.color }}
           >
             {title}
           </Text>
@@ -106,7 +113,7 @@ export function SelectableTile({
         </View>
         <Text
           className="text-xs mt-0.5"
-          style={{ color: CONTRAST_TYPOGRAPHY.description.color }}
+          style={{ color: typography.description.color }}
           numberOfLines={2}
         >
           {description}

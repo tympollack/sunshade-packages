@@ -4,6 +4,7 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import { Popover } from '../components/Popover/Popover';
 import { Tooltip } from '../components/Tooltip/Tooltip';
 import { DropdownMenu } from '../components/Dropdown/DropdownMenu';
+import { Select } from '../components/Dropdown/Select';
 
 describe('Floating Primitives (Popover, Tooltip, DropdownMenu)', () => {
   beforeEach(() => {
@@ -266,6 +267,96 @@ describe('Floating Primitives (Popover, Tooltip, DropdownMenu)', () => {
 
       expect(handleAction).toHaveBeenCalledTimes(1);
       expect(screen.queryByRole('menu')).toBeNull();
+    });
+
+    it('renders DropdownMenu and Popover in document.body portal with z-[100] outside overflow-hidden parents', () => {
+      const items = [{ label: 'Profile' }, { label: 'Sign Out' }];
+
+      render(
+        <div style={{ overflow: 'hidden' }} data-testid="clipped-navbar">
+          <DropdownMenu items={items} trigger={<button>Navbar Menu</button>} testID="nav-dd" />
+          <Popover trigger={<button>Navbar Popover</button>} testID="nav-pop">
+            <div>Popover Content</div>
+          </Popover>
+        </div>
+      );
+
+      const navbar = screen.getByTestId('clipped-navbar');
+
+      fireEvent.click(screen.getByText('Navbar Menu'));
+      const menu = screen.getByTestId('nav-dd');
+      expect(menu.className).toContain('z-[100]');
+      expect(menu.parentElement).toBe(document.body);
+      expect(navbar.contains(menu)).toBe(false);
+
+      fireEvent.click(screen.getByText('Navbar Popover'));
+      const popover = screen.getByTestId('nav-pop');
+      expect(popover.className).toContain('z-[100]');
+      expect(popover.parentElement).toBe(document.body);
+      expect(navbar.contains(popover)).toBe(false);
+    });
+  });
+
+  describe('Select Primitive', () => {
+    it('renders portaled listbox with z-[100] and selects option via click', () => {
+      const handleChange = vi.fn();
+      const options = [
+        { value: 'sunshine', label: 'Sunshine' },
+        { value: 'breezy', label: 'Breezy' },
+        { value: 'raincloud', label: 'Raincloud', disabled: true },
+      ];
+
+      render(
+        <div style={{ overflow: 'hidden' }} data-testid="select-parent">
+          <Select options={options} value="sunshine" onChange={handleChange} testID="vibe-select" />
+        </div>
+      );
+
+      const trigger = screen.getByTestId('vibe-select');
+      fireEvent.click(trigger);
+
+      const listbox = screen.getByTestId('vibe-select-menu');
+      expect(listbox.className).toContain('z-[100]');
+      expect(listbox.parentElement).toBe(document.body);
+
+      fireEvent.click(screen.getByTestId('vibe-select-option-breezy'));
+      expect(handleChange).toHaveBeenCalledWith('breezy');
+      expect(screen.queryByTestId('vibe-select-menu')).toBeNull();
+    });
+
+    it('uses single-focus aria-activedescendant model and closes on Tab', () => {
+      const handleChange = vi.fn();
+      const options = [
+        { value: 'sunshine', label: 'Sunshine' },
+        { value: 'breezy', label: 'Breezy' },
+        { value: 'cozy', label: 'Cozy' },
+      ];
+
+      render(
+        <Select options={options} value="sunshine" onChange={handleChange} testID="kb-select" />
+      );
+
+      const trigger = screen.getByTestId('kb-select');
+      trigger.focus();
+      fireEvent.click(trigger);
+
+      const firstOpt = screen.getByTestId('kb-select-option-sunshine');
+      expect(firstOpt.getAttribute('tabindex')).toBe('-1');
+
+      fireEvent.keyDown(window, { key: 'End' });
+      expect(trigger.getAttribute('aria-activedescendant')).toBe(
+        screen.getByTestId('kb-select-option-cozy').id
+      );
+
+      fireEvent.keyDown(window, { key: 'Enter' });
+      expect(handleChange).toHaveBeenCalledWith('cozy');
+      expect(screen.queryByTestId('kb-select-menu')).toBeNull();
+
+      // Re-open and press Tab: closes without stealing focus
+      fireEvent.click(trigger);
+      expect(screen.getByTestId('kb-select-menu')).toBeDefined();
+      fireEvent.keyDown(window, { key: 'Tab' });
+      expect(screen.queryByTestId('kb-select-menu')).toBeNull();
     });
   });
 });

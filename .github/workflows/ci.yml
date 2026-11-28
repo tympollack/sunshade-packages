@@ -23,7 +23,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -34,6 +34,9 @@ jobs:
 
       - name: Lint & File size guard
         run: npm run lint
+
+      - name: Install Playwright Chromium for UI audit tests
+        run: npx playwright install chromium
 
       - name: Run boundary tests
         run: npm run test:boundaries

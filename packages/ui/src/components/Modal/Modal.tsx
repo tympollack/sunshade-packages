@@ -5,7 +5,9 @@ import {
   registerModal,
   unregisterModal,
   isTopmostModal,
+  hasActiveFloatingOverlay,
   trapTabFocus,
+  handleScrollContainment,
 } from './modalManager';
 
 export interface ModalProps {
@@ -53,7 +55,7 @@ const SIZE_CLASSES: Record<'sm' | 'md' | 'lg' | 'full', string> = {
   sm: 'max-w-md w-full',
   md: 'max-w-lg w-full',
   lg: 'max-w-2xl w-full',
-  full: 'max-w-5xl w-[95vw] h-[88vh]',
+  full: 'max-w-5xl w-[95vw] h-[85dvh]',
 };
 
 /**
@@ -85,6 +87,7 @@ export function Modal({
   const modalId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
 
   // Focus tracking, Escape stack, and body scroll lock via modalManager
   useEffect(() => {
@@ -125,7 +128,7 @@ export function Modal({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && closeOnEscape) {
-        if (isTopmostModal(modalId)) {
+        if (isTopmostModal(modalId) && !hasActiveFloatingOverlay()) {
           e.stopPropagation();
           e.preventDefault();
           onClose();
@@ -140,6 +143,28 @@ export function Modal({
       window.removeEventListener('keydown', handleKeyDown, true);
     };
   }, [isOpen, modalId, onClose, closeOnEscape]);
+
+  // Behavioral wheel containment to prevent background scroll bleed
+  useEffect(() => {
+    if (!isOpen) return;
+    const el = bodyRef.current;
+    if (!el) return;
+
+    const onWheel = (e: WheelEvent) => {
+      handleScrollContainment(
+        el,
+        e.deltaY,
+        () => e.preventDefault(),
+        () => e.stopPropagation(),
+        e.target
+      );
+    };
+
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+    };
+  }, [isOpen]);
 
   if (!isOpen || typeof document === 'undefined') {
     return null;
@@ -181,7 +206,7 @@ export function Modal({
           transition: 'transform 220ms cubic-bezier(0.16, 1, 0.3, 1), opacity 200ms ease-out',
         }}
         className={cn(
-          'relative flex flex-col max-h-[88vh] outline-none',
+          'relative flex flex-col max-h-[85dvh] overflow-hidden outline-none',
           'bg-stone-900/95 border border-stone-800 shadow-2xl rounded-2xl text-stone-100',
           'transform scale-100 opacity-100',
           SIZE_CLASSES[size] || SIZE_CLASSES.md,
@@ -247,8 +272,10 @@ export function Modal({
 
         {/* Scrollable Body */}
         <div
+          ref={bodyRef}
+          data-testid={`${testID}-body`}
           className={cn(
-            'flex-1 min-h-0 overflow-y-auto px-6 py-4 text-stone-300 text-sm leading-relaxed',
+            'flex-1 min-h-0 overflow-y-auto overscroll-contain px-6 py-4 text-stone-300 text-sm leading-relaxed',
             bodyClassName
           )}
         >
@@ -273,4 +300,6 @@ export function Modal({
   return createPortal(content, document.body);
 }
 
+export const Dialog = Modal;
+export type DialogProps = ModalProps;
 export default Modal;

@@ -21,11 +21,16 @@ yarn add @digitalcanopy/ui
   - `AtmosphericBadge`: Status indicators for environment and network states.
   - `SelectableTile`: Interactive card selection tile.
 - **Web & React Native Web Primitives** (Next.js, Vite, React Native Web):
-  - `Modal` & `BottomSheet`: Accessible stacked dialogs with focus trapping and gesture spring physics.
-  - `Popover`, `Tooltip`, & `DropdownMenu`: Floating anchors with flip/shift viewport protection.
+  - `AppShell`: Responsive 3-pane workspace shell with collapsible desktop rail (`w-14` / `w-64`), mobile slide-over drawer (`md:hidden`), and non-blocking desktop inspector.
+  - `Modal`, `Dialog`, & `BottomSheet`: Accessible stacked dialogs bounded to `85dvh` with scroll containment, focus trapping, and gesture spring physics.
+  - `Popover`, `Tooltip`, `DropdownMenu`, & `Select`: Portal-mounted floating primitives (`z-[100]`) with collision padding and viewport flip/shift protection.
   - `ProgressBar` & `Skeleton`: Segmented progress tracking and shimmer skeleton loaders.
   - `DataTable`: Virtualized dataset grid with sortable columns and action menus.
   - `Sparkline`: SVG micro-chart with cubic Bézier smoothing and live telemetry tracking.
+- **Headless UI Audit CLI (`sunshade-ui-audit`)**:
+  - Zero-config Playwright + `axe-core` audit binary verifying WCAG AA contrast, horizontal overflow, clipped controls, mobile tap targets (`>= 32x32px`), mobile nav triggers, nowrap text wrapping, prose line width (`<= 760px`), clipped scroll containers, and `<img>` integrity.
+  - Prerequisite: ensure a Chromium-compatible browser is available (run `npx playwright install chromium` once, or have Google Chrome / Microsoft Edge installed, or set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`).
+  - Usage: `npx sunshade-ui-audit --url http://localhost:3000 --routes /,/dashboard`
 
 ## Usage
 

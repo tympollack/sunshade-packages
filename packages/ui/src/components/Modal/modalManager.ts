@@ -14,6 +14,29 @@ export interface ModalInstance {
 let activeModalCount = 0;
 let originalOverflow = '';
 const modalStack: ModalInstance[] = [];
+const floatingOverlayIds = new Set<string>();
+
+/**
+ * Registers an open floating overlay (Select, DropdownMenu, Popover) so Escape
+ * dismisses the floating menu before any enclosing modal dialog.
+ */
+export function registerFloatingOverlay(id: string): void {
+  floatingOverlayIds.add(id);
+}
+
+/**
+ * Unregisters an open floating overlay by ID.
+ */
+export function unregisterFloatingOverlay(id: string): void {
+  floatingOverlayIds.delete(id);
+}
+
+/**
+ * Returns true if any portaled floating menu/popover/select is currently open.
+ */
+export function hasActiveFloatingOverlay(): boolean {
+  return floatingOverlayIds.size > 0;
+}
 
 /**
  * Acquires a body scroll lock reference.
@@ -115,15 +138,41 @@ export function trapTabFocus(container: HTMLElement, e: KeyboardEvent | React.Ke
   }
 }
 
+function canElementScrollInDirection(node: HTMLElement, deltaY: number): boolean {
+  if (node.scrollHeight <= node.clientHeight + 1) return false;
+  if (deltaY < 0) return node.scrollTop > 0;
+  if (deltaY > 0) return node.scrollHeight - node.scrollTop > node.clientHeight + 1;
+  return false;
+}
+
 /**
- * Handles scroll wheel events on scrollable containers to prevent boundary bleed.
+ * Handles scroll wheel events on scrollable containers to prevent boundary bleed
+ * while allowing nested scrollable controls (e.g. textareas) to scroll freely.
  */
 export function handleScrollContainment(
   el: HTMLElement,
   deltaY: number,
   preventDefault: () => void,
-  stopPropagation: () => void
+  stopPropagation: () => void,
+  eventTarget?: EventTarget | null
 ): void {
+  if (eventTarget && typeof Element !== 'undefined' && eventTarget instanceof Element && el.contains(eventTarget)) {
+    let curr: Element | null = eventTarget;
+    while (curr && curr !== el) {
+      if (curr instanceof HTMLElement) {
+        const style = typeof window !== 'undefined' ? window.getComputedStyle(curr) : null;
+        const isScrollableRole =
+          curr.tagName === 'TEXTAREA' ||
+          style?.overflowY === 'auto' ||
+          style?.overflowY === 'scroll';
+        if (isScrollableRole && canElementScrollInDirection(curr, deltaY)) {
+          return;
+        }
+      }
+      curr = curr.parentElement;
+    }
+  }
+
   stopPropagation();
   const isAtTop = el.scrollTop <= 0 && deltaY < 0;
   const isAtBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + 1 && deltaY > 0;

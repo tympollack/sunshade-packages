@@ -1,10 +1,14 @@
-import React, { useState, useRef, useEffect, useCallback, cloneElement } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useId, cloneElement } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '../../utils/cn';
 import {
   type Placement,
   calculateFloatingPosition,
 } from '../../utils/floatingAnchor';
+import {
+  registerFloatingOverlay,
+  unregisterFloatingOverlay,
+} from '../Modal/modalManager';
 
 export interface PopoverProps {
   /** Controlled open state */
@@ -19,6 +23,8 @@ export interface PopoverProps {
   placement?: Placement;
   /** Pixel distance from trigger (default 8) */
   offset?: number;
+  /** Viewport edge collision padding in px (default 12) */
+  viewportPadding?: number;
   /** Class name on floating container */
   className?: string;
   /** Whether clicking outside dismisses popover (default true) */
@@ -31,7 +37,7 @@ export interface PopoverProps {
 
 /**
  * Popover - Portal-anchored floating panel primitive for @digitalcanopy/ui.
- * Mounts in a React Portal targeting document.body to prevent clipping in overflow-hidden containers,
+ * Mounts in a React Portal targeting document.body (z-[100]) to prevent clipping in overflow-hidden containers,
  * calculates collision flip/shift, and dismisses on outside clicks and Escape.
  */
 export function Popover({
@@ -41,6 +47,7 @@ export function Popover({
   children,
   placement = 'bottom-start',
   offset = 8,
+  viewportPadding = 12,
   className,
   closeOnOutsideClick = true,
   closeOnEscape = true,
@@ -50,9 +57,16 @@ export function Popover({
   const isControlled = controlledIsOpen !== undefined;
   const open = isControlled ? controlledIsOpen : internalIsOpen;
 
+  const overlayId = useId();
   const triggerRef = useRef<HTMLElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const [coords, setCoords] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+
+  useEffect(() => {
+    if (!open) return;
+    registerFloatingOverlay(overlayId);
+    return () => unregisterFloatingOverlay(overlayId);
+  }, [open, overlayId]);
 
   const setOpen = useCallback(
     (nextOpen: boolean) => {
@@ -75,9 +89,10 @@ export function Popover({
     const result = calculateFloatingPosition(triggerRect, popoverRect, {
       placement,
       offset,
+      viewportPadding,
     });
     setCoords({ top: result.top, left: result.left });
-  }, [placement, offset]);
+  }, [placement, offset, viewportPadding]);
 
   // Update position on open, scroll, or resize
   useEffect(() => {
@@ -168,10 +183,10 @@ export function Popover({
               position: 'absolute',
               top: `${coords.top}px`,
               left: `${coords.left}px`,
-              zIndex: 9999,
+              zIndex: 100,
             }}
             className={cn(
-              'min-w-[200px] p-4 outline-none select-text',
+              'z-[100] min-w-[200px] max-w-[calc(100vw-24px)] max-h-[calc(100dvh-24px)] overflow-y-auto overscroll-contain p-4 outline-none select-text',
               'bg-stone-900/95 backdrop-blur-md border border-stone-800 shadow-xl rounded-lg text-stone-100',
               'animate-in fade-in zoom-in-95 duration-150',
               className
