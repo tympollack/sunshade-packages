@@ -1,5 +1,11 @@
 # @digitalcanopy/ui
 
+## 0.2.0
+
+### Minor Changes
+
+- 1980c25: Harden bounded Modal/Dialog, portaled DropdownMenu/Popover/Select (`z-[100]`), paired high-contrast theme variants (`sunshine`, `breezy`, `raincloud`, `sunshade`, `cozy`), add responsive 3-pane `AppShell`, and export the `sunshade-ui-audit` headless Playwright + axe-core CLI bin.
+
 ## 0.1.3
 
 ### Patch Changes
